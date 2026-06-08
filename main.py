@@ -20,7 +20,13 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 from agent_connector import get_quarq_response
-from agent import wipe_all_memories_for_api
+from agent import (
+    MEMORY_INGESTION_ACK,
+    PENDING_LEARNING_TASKS,
+    background_memory_update,
+    wipe_all_memories_for_api,
+    wrap_memory_ingestion_payload,
+)
 from agent_tools_config import handle_tool_command, load_enabled_cloud_tools
 from coding_agents.codex_runner import close_all_codex_sessions
 from coding_agents.config import load_settings as load_coding_settings
@@ -82,6 +88,35 @@ JOB_LOCK = asyncio.Lock()
 JOB_WORKER_TASK: asyncio.Task | None = None
 CHAT_HISTORY_LOCK = asyncio.Lock()
 CODING_TELEGRAM_LAST_SENT: dict[str, float] = {}
+CODING_LEARNING_SEMAPHORE = asyncio.Semaphore(2)
+CODING_HISTORY_TITLES = {
+    "Coding task queued",
+    "Coding setup needed",
+    "Coding started",
+    "Coding session restarted",
+    "Coding progress",
+    "Coding approval needed",
+    "Coding reply",
+    "Coding completed",
+    "Coding failed",
+    "Coding interrupted",
+    "Coding cancelled",
+}
+CODING_LEARNING_TITLES = {
+    "Coding task queued",
+    "Coding setup needed",
+    "Coding started",
+    "Coding session restarted",
+    "Coding progress",
+    "Coding approval needed",
+    "Coding reply",
+    "Coding completed",
+    "Coding failed",
+    "Coding interrupted",
+    "Coding cancelled",
+}
+CODING_HISTORY_MAX_CHARS = 4000
+CODING_LEARNING_MAX_CHARS = 3000
 
 
 class ChatRequest(BaseModel):
@@ -304,6 +339,18 @@ def telegram_chat_id_from_conversation_ref(conversation_ref: str | None) -> int 
         return int(value)
     except ValueError:
         return None
+
+
+def channel_from_conversation_ref(conversation_ref: str | None) -> tuple[str, str | None] | None:
+    text = str(conversation_ref or "").strip()
+    if not text:
+        return None
+    if ":" not in text:
+        return text, None
+    channel, conversation_id = text.split(":", 1)
+    channel = channel.strip() or "web"
+    conversation_id = conversation_id.strip() or None
+    return channel, conversation_id
 
 
 def known_telegram_conversation_refs() -> list[str]:
@@ -617,7 +664,137 @@ async def record_coding_event(
 ):
     event = await record_event(kind, title, message, data)
     await maybe_send_coding_telegram_update(title, message, data or {})
+    try:
+        await persist_coding_event_to_chat_history_and_learning(title, message, data or {})
+    except Exception as exc:
+        logger.debug("Coding event history/learning persistence failed: %s", exc)
     return event
+
+
+def compact_coding_text(value: object, max_chars: int = CODING_HISTORY_MAX_CHARS) -> str:
+    text = str(value or "").strip()
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "\n[truncated]"
+
+
+def coding_event_refs(task: dict) -> list[str]:
+    refs = []
+    if task.get("conversation_ref"):
+        refs.append(str(task["conversation_ref"]))
+    for ref in task.get("notification_refs") or []:
+        ref_text = str(ref or "").strip()
+        if ref_text and ref_text not in refs:
+            refs.append(ref_text)
+    return refs or ["cli"]
+
+
+def coding_provider_label(task: dict, data: dict) -> str:
+    provider = str(data.get("provider") or task.get("provider") or "coding agent").strip()
+    labels = {"codex": "Codex"}
+    return labels.get(provider.lower(), provider.replace("_", " ").title())
+
+
+def coding_event_history_pair(title: str, message: str, task: dict, data: dict) -> tuple[str, str]:
+    task_id = str(data.get("task_id") or task.get("id") or "").strip()
+    provider = coding_provider_label(task, data)
+    status = str(data.get("status") or task.get("status") or "").strip()
+    status_suffix = f" [{status}]" if status else ""
+    task_prompt = compact_coding_text(task.get("prompt") or task.get("pending_prompt") or "", 1200)
+    body = compact_coding_text(message, CODING_HISTORY_MAX_CHARS)
+
+    if title == "Coding reply":
+        user_prompt = f"User reply to {provider} coding task {task_id}:\n{body}"
+        agent_response = f"Reply recorded for {provider} coding task {task_id}{status_suffix}."
+        return user_prompt, agent_response
+
+    if title == "Coding task queued":
+        user_prompt = f"User started {provider} coding task {task_id}:\n{task_prompt or body}"
+        agent_response = f"{title}{status_suffix}: {body}"
+        return user_prompt, agent_response
+
+    user_prompt = (
+        f"{provider} coding task {task_id} update for original request:\n"
+        f"{task_prompt or 'No original task prompt was saved.'}"
+    )
+    if title == "Coding completed":
+        agent_response = f"{provider} completed coding task {task_id}{status_suffix}:\n{body}"
+    elif title == "Coding failed":
+        agent_response = f"{provider} failed coding task {task_id}{status_suffix}:\n{body}"
+    elif title == "Coding approval needed":
+        agent_response = f"{provider} needs user approval for coding task {task_id}{status_suffix}:\n{body}"
+    else:
+        agent_response = f"{title}{status_suffix}: {body}"
+    return user_prompt, agent_response
+
+
+async def persist_coding_event_to_chat_history_and_learning(title: str, message: str, data: dict) -> None:
+    if title not in CODING_HISTORY_TITLES:
+        return
+
+    task_id = str(data.get("task_id") or "").strip()
+    if not task_id:
+        return
+
+    task = CodingTaskStore(load_coding_settings().task_root).get_task(task_id)
+    if not task:
+        return
+
+    user_prompt, agent_response = coding_event_history_pair(title, message, task, data)
+    if not user_prompt.strip() or not agent_response.strip():
+        return
+
+    for ref in coding_event_refs(task):
+        parsed = channel_from_conversation_ref(ref)
+        if not parsed:
+            continue
+        channel_type, conversation_id = parsed
+        await append_chat_history(
+            channel_type,
+            user_prompt,
+            agent_response,
+            conversation_id=conversation_id,
+        )
+
+    schedule_coding_event_learning(title, user_prompt, agent_response)
+
+
+def schedule_coding_event_learning(title: str, user_prompt: str, agent_response: str) -> None:
+    if title not in CODING_LEARNING_TITLES:
+        return
+
+    payload = "\n".join(
+        [
+            f"user: {compact_coding_text(user_prompt, CODING_LEARNING_MAX_CHARS)}",
+            f"assistant: {compact_coding_text(agent_response, CODING_LEARNING_MAX_CHARS)}",
+        ]
+    )
+    ingestion_prompt = wrap_memory_ingestion_payload(payload)
+
+    async def learn_coding_event() -> None:
+        async with CODING_LEARNING_SEMAPHORE:
+            await background_memory_update(
+                ingestion_prompt,
+                MEMORY_INGESTION_ACK,
+                "",
+                "",
+                "",
+                None,
+            )
+
+    task = asyncio.create_task(learn_coding_event())
+    PENDING_LEARNING_TASKS.add(task)
+
+    def cleanup_learning_task(done_task: asyncio.Task) -> None:
+        PENDING_LEARNING_TASKS.discard(done_task)
+        try:
+            done_task.result()
+        except asyncio.CancelledError:
+            pass
+        except Exception as exc:
+            logger.debug("Coding event learning failed: %s", exc)
+
+    task.add_done_callback(cleanup_learning_task)
 
 
 async def maybe_send_coding_telegram_update(title: str, message: str, data: dict) -> None:

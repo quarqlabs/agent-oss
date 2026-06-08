@@ -8,7 +8,6 @@ import os
 import platform
 import stat
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -132,7 +131,7 @@ def install_unix(root: Path, force: bool, no_profile: bool, dry_run: bool) -> in
     if str(bin_dir) not in os.environ.get("PATH", "").split(os.pathsep):
         if profile_updated and profile:
             print_step(f"updated PATH for future terminals in {profile}")
-        print_step(f"for this terminal, run: export PATH=\"$HOME/.local/bin:$PATH\"")
+        print_step("for this terminal, run: export PATH=\"$HOME/.local/bin:$PATH\"")
         if profile:
             print_step(f"or open a new terminal; zsh/bash users can also run: source {profile}")
     print_step("then start Argus with: argus")
