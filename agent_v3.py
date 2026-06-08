@@ -1,4 +1,4 @@
-# Quarq Agent v0.3.0
+# Argus Agent v0.3.0
 
 import os
 import json
@@ -58,8 +58,8 @@ llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1",
     temperature=0,
     default_headers={
-        "HTTP-Referer": "https://quarq.io",
-        "X-Title": "Quarq Agent V2",
+        "HTTP-Referer": "https://github.com/quarqlabs/argus",
+        "X-Title": "Argus Agent V2",
     },
 )
 
@@ -69,8 +69,8 @@ gen_llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1",
     temperature=0,
     default_headers={
-        "HTTP-Referer": "https://quarq.io",
-        "X-Title": "Quarq Agent V2",
+        "HTTP-Referer": "https://github.com/quarqlabs/argus",
+        "X-Title": "Argus Agent V2",
     },
 )
 
@@ -972,7 +972,7 @@ async def generate_response_node(state: AgentState):
             )  # Fallback to empty dict to prevent infinite retries
 
     cfg = AGENT_CONFIG_CACHE
-    name = cfg.get("agent_name") or "Quarq Agent"
+    name = cfg.get("agent_name") or "Argus Agent"
     personality = cfg.get("agent_personality") or "professional and helpful"
     use_cases = ", ".join(cfg.get("agent_use_cases") or ["general assistance"])
     custom_prompt = cfg.get("agent_custom_prompt") or ""
@@ -988,7 +988,7 @@ async def generate_response_node(state: AgentState):
     Your responses must strictly align with this identity and tone.
                 """.strip()
 
-    system_instruction = f"""You are a highly advanced, disciplined AI assistant created by QuarqLabs Team.
+    system_instruction = f"""You are a highly advanced, disciplined AI assistant created by the Argus team.
 
     {identity_instruction}
     
@@ -1324,7 +1324,7 @@ async def learn_vector_memory(
         )
         example = (
             '{ "action": "ADD", "content": "User\'s name is Sourav." }, '
-            '{ "action": "ADD", "content": "User works at Quarq Labs." }'
+            '{ "action": "ADD", "content": "User works at Argus Labs." }'
             '{ "action": "ADD", "content": "User\'s high school friend is named Sarah." }, '
         )
         exclusion_rule = "DO NOT extract temporary states, emotions, or the narrative of the conversation. DO NOT extract greetings, pleasantries, or basic conversational filler."
@@ -1772,7 +1772,7 @@ app = workflow.compile()
 
 async def main_chat_loop():
     print(
-        "🤖 Quarq Agent  V3 - Cognitive Memory Editor, Temporal Truth Protocol, and Background Learning"
+        "🤖 Argus Agent  V3 - Cognitive Memory Editor, Temporal Truth Protocol, and Background Learning"
     )
     chat_history = []
     while True:

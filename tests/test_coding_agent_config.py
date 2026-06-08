@@ -44,7 +44,7 @@ def test_relative_workspace_resolves_from_launch_cwd(monkeypatch, tmp_path):
     launch_dir.mkdir()
     monkeypatch.setenv("LOCAL_MEMORY_ROOT", str(tmp_path / "memory"))
     monkeypatch.setenv("AGENT_ID", "portable_workspace_agent")
-    monkeypatch.setenv("QUARQ_LAUNCH_CWD", str(launch_dir))
+    monkeypatch.setenv("ARGUS_LAUNCH_CWD", str(launch_dir))
     monkeypatch.setenv("CODEX_WORKSPACE_ROOT", ".")
 
     assert load_settings().workspace_root == launch_dir

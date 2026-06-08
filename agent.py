@@ -1,4 +1,4 @@
-# Quarq Agent v0.4.4
+# Argus Agent v0.4.4
 
 import os
 import json
@@ -2442,7 +2442,7 @@ async def generate_response_node(state: AgentState):
         AGENT_CONFIG_CACHE = load_agent_config()
 
     cfg = AGENT_CONFIG_CACHE
-    name = cfg.get("agent_name") or "Quarq Agent"
+    name = cfg.get("agent_name") or "Argus Agent"
     personality = cfg.get("agent_personality") or "professional and helpful"
     use_cases = ", ".join(cfg.get("agent_use_cases") or ["general assistance"])
     custom_prompt = cfg.get("agent_custom_prompt") or ""
@@ -2486,7 +2486,7 @@ async def generate_response_node(state: AgentState):
     In the <thinking> block, briefly state that this is a general question and whether any retrieved memory is relevant for personalization. Then answer directly in agent_response.
         """.strip()
 
-    system_instruction = f"""You are a highly advanced, disciplined AI assistant created by QuarqLabs Team.
+    system_instruction = f"""You are a highly advanced, disciplined AI assistant created by the Argus team.
 
     {identity_instruction}
 
@@ -3342,7 +3342,7 @@ async def learn_vector_memory(
         )
         example = (
             '{ "action": "ADD", "content": "User\'s name is Sourav." }, '
-            '{ "action": "ADD", "content": "User works at Quarq Labs." }'
+            '{ "action": "ADD", "content": "User works at Argus Labs." }'
             '{ "action": "ADD", "content": "User goes to Blue Bottle Coffee." }, '
             '{ "action": "ADD", "content": "User uses a Nespresso machine at home." }, '
             '{ "action": "ADD", "content": "User\'s high school friend is named Sarah." }, '
@@ -4336,7 +4336,7 @@ app = workflow.compile()
 
 async def main_chat_loop():
     print(
-        "🤖 Quarq Agent  V4 - Self Reflective loop ,  Cognitive Memory Editor, Temporal Truth Protocol, and Background Learning"
+        "🤖 Argus Agent  V4 - Self Reflective loop ,  Cognitive Memory Editor, Temporal Truth Protocol, and Background Learning"
     )
     chat_history = []
     while True:

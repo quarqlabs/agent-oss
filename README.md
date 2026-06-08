@@ -1,8 +1,8 @@
-# Quarq Agent
+# Argus Agent
 
 **Local memory. Hybrid retrieval. Self-correcting reasoning. Benchmark-grade recall.**
 
-Quarq Agent is a memory-first AI agent built by QuarqLabs for long-context personal intelligence, grounded recall, temporal reasoning, quantitative reasoning, and tool use.
+Argus Agent is a memory-first AI agent for long-context personal intelligence, grounded recall, temporal reasoning, quantitative reasoning, and tool use.
 
 It is designed as an open, inspectable alternative to memory agents such as Hermes or OpenClaw, with a stronger emphasis on durable local memory, strict attribution, self-correcting retrieval, and benchmark-grade long-term recall.
 
@@ -14,7 +14,7 @@ Benchmark cost warning: a full 500-question LongMemEval-S run with the current m
 
 ## Contents
 
-- [Why Quarq Exists](#why-quarq-exists)
+- [Why Argus Exists](#why-argus-exists)
 - [What's New In v0.4.4](#whats-new-in-v044)
 - [What Makes It Different](#what-makes-it-different)
 - [Highlights](#highlights)
@@ -44,13 +44,13 @@ Benchmark cost warning: a full 500-question LongMemEval-S run with the current m
 - [Status](#status)
 - [License](#license)
 
-## Why Quarq Exists
+## Why Argus Exists
 
 Most agents can chat. Fewer can remember. Almost none can remember carefully.
 
-Quarq Agent is built around a simple idea: memory is not just vector search. A serious memory agent needs to know what a memory means, when it happened, what numbers belong to, which entity a fact is attached to, when evidence is incomplete, and when it must search again instead of guessing.
+Argus Agent is built around a simple idea: memory is not just vector search. A serious memory agent needs to know what a memory means, when it happened, what numbers belong to, which entity a fact is attached to, when evidence is incomplete, and when it must search again instead of guessing.
 
-Quarq combines:
+Argus combines:
 
 - local FAISS vector memory
 - semantic, episodic, and procedural memory separation
@@ -69,7 +69,7 @@ The result is an agent that behaves less like a stateless chatbot and more like 
 
 ## What's New In v0.4.4
 
-This release turns Quarq into a much more complete local agent runtime:
+This release turns Argus into a much more complete local agent runtime:
 
 - **Argus control console:** a Codex-style CLI with a fixed bottom input row, scrollable transcript, Markdown rendering, command palette, multiline compose, live status header, global `argus` launcher, and one-command setup scripts for macOS/Linux and Windows.
 - **API job queue:** chat requests now create jobs, emit status events while work is happening, and return final responses when the job completes. The CLI polls events instead of blocking silently.
@@ -78,12 +78,12 @@ This release turns Quarq into a much more complete local agent runtime:
 - **Multimodal input storage:** incoming Telegram/API files are stored under local channel state, indexed, and passed into the agent with best-effort text extraction or AI-assisted image/audio/PDF understanding.
 - **Local identity management:** agent name, personality, use cases, and custom prompt can be updated through a local identity config file instead of Supabase-backed identity tools.
 - **Cloud-tool expansion:** external SaaS actions are routed through a single cloud-tool skill with configurable toolkits, user-facing `/tools`, `/which-tool`, `/cloud-tools`, `/add-tool`, and `/remove-tool` commands.
-- **Coding-agent delegation:** Quarq can delegate software work to Codex, persist tasks and logs, continue or start fresh sessions, delete task history, configure workspace/provider/network mode, and stream progress into CLI and subscribed Telegram chats.
+- **Coding-agent delegation:** Argus can delegate software work to Codex, persist tasks and logs, continue or start fresh sessions, delete task history, configure workspace/provider/network mode, and stream progress into CLI and subscribed Telegram chats.
 - **Coding safety and UX:** coding tasks use shallow retrieval, portable workspace defaults, task-id suggestions, network-on defaults for package registries, safe restart when Codex sandbox settings change, and progress-file polling for long training/build tasks.
 
 ## What Makes It Different
 
-Quarq is not a wrapper around a vector database. It is a full memory reasoning loop.
+Argus is not a wrapper around a vector database. It is a full memory reasoning loop.
 
 Standard RAG systems usually fail long-memory tasks for one of four reasons:
 
@@ -92,7 +92,7 @@ Standard RAG systems usually fail long-memory tasks for one of four reasons:
 3. They confuse storage time with event time.
 4. They calculate with nearby numbers that do not belong to the question.
 
-Quarq directly attacks those failure modes with retrieval decomposition, evidence attribution, temporal guardrails, numeric scope checks, and a second-pass recovery path when the first context is incomplete.
+Argus directly attacks those failure modes with retrieval decomposition, evidence attribution, temporal guardrails, numeric scope checks, and a second-pass recovery path when the first context is incomplete.
 
 ## Highlights
 
@@ -114,7 +114,7 @@ Quarq directly attacks those failure modes with retrieval decomposition, evidenc
 - Local control console: starts the FastAPI worker, shows structured request/job/channel events, supports multiline input, command completion, and a scrollable transcript.
 - On-demand channel connections: channels are connected only when requested, starting with Telegram through a temporary Cloudflare tunnel and automatic webhook registration.
 - Local identity config: agent name, personality, use cases, and custom directives can be updated by tool call into a local JSON file instead of Supabase.
-- Coding-agent delegation: Quarq can start durable Codex tasks, stream coding progress into the CLI, let the user reply, and persist task logs locally.
+- Coding-agent delegation: Argus can start durable Codex tasks, stream coding progress into the CLI, let the user reply, and persist task logs locally.
 
 ## Architecture
 
@@ -157,7 +157,7 @@ Learning is launched from `generate_response`. Normal chat keeps the interactive
 
 ## Memory System
 
-Quarq uses three memory layers.
+Argus uses three memory layers.
 
 ### Semantic Memory
 
@@ -273,7 +273,7 @@ when supported. The stored file remains available even when readable text cannot
 yet be extracted.
 
 PDF extraction uses `pypdf` for embedded text. If a PDF has no embedded text or
-behaves like a scanned/image document, Quarq can render the first few pages with
+behaves like a scanned/image document, Argus can render the first few pages with
 `PyMuPDF` and send them through the configured multimodal image model for
 vision OCR. Make sure `pip install -r requirements.txt` has been run in the same
 virtual environment that starts `main.py` or `agent_cli.py`.
@@ -302,7 +302,7 @@ Downstream deduplication, recency sorting, contradiction handling, and memory up
 
 ## Retrieval Pipeline
 
-Quarq does not simply embed the latest user prompt and hope for the best.
+Argus does not simply embed the latest user prompt and hope for the best.
 
 The retrieval node first asks a lightweight model to produce a structured search plan:
 
@@ -334,11 +334,11 @@ Search modes:
 - `standard`: strict retrieval for point facts, threshold `0.38`
 - `deep`: wide recall for totals, timelines, histories, recommendations, and broad categories, threshold `0.28`
 
-This is why Quarq can answer questions that require multiple memories rather than only nearest-neighbor recall.
+This is why Argus can answer questions that require multiple memories rather than only nearest-neighbor recall.
 
 ## Temporal Reasoning
 
-Quarq treats time as evidence, not decoration.
+Argus treats time as evidence, not decoration.
 
 The agent distinguishes:
 
@@ -354,11 +354,11 @@ The Temporal Truth Protocol prevents common long-memory errors:
 - assuming a discussion date is the same as an event date
 - calculating date gaps from guessed anchors
 
-For "how long ago" questions, Quarq searches for the named event first and only uses the current date as the calculation anchor after retrieval.
+For "how long ago" questions, Argus searches for the named event first and only uses the current date as the calculation anchor after retrieval.
 
 ## Quantitative Reasoning
 
-Long-memory benchmarks often punish sloppy number handling. Quarq's numeric protocol is built to avoid that.
+Long-memory benchmarks often punish sloppy number handling. Argus's numeric protocol is built to avoid that.
 
 For totals, counts, durations, prices, quantities, or money questions, the model must identify:
 
@@ -377,11 +377,11 @@ User helped organize a concert, which raised over $5,000.
 
 The amount belongs to the concert, not automatically to the user. It is also a lower-bound value, not an exact addend.
 
-For exact totals, Quarq sums only exact unqualified values unless the user explicitly asks for a minimum, estimate, or range.
+For exact totals, Argus sums only exact unqualified values unless the user explicitly asks for a minimum, estimate, or range.
 
 ## Self-Correcting Retrieval
 
-If the first retrieval pass does not contain enough evidence, Quarq can emit:
+If the first retrieval pass does not contain enough evidence, Argus can emit:
 
 ```json
 {
@@ -399,7 +399,7 @@ This makes the agent aggressive about recall but conservative about truth.
 
 ## Learning Pipeline
 
-After every normal response, Quarq starts background learning.
+After every normal response, Argus starts background learning.
 
 Benchmark memory-ingestion prompts are the exception. They are learned synchronously before the ingestion response returns, so `run_dataset_evals.py` does not feed the next history chunk until the previous chunk has been learned and committed.
 
@@ -446,7 +446,7 @@ Background learning is protected by:
 
 ## Tool System
 
-Quarq includes a progressive skill router.
+Argus includes a progressive skill router.
 
 Instead of injecting all tool instructions into every prompt, the router sees a compact catalog and selects only the relevant skills. The generation model then receives the full markdown and bound tools for those selected skills.
 
@@ -458,7 +458,7 @@ Current included skills:
 
 Tool execution uses a ReAct loop with a maximum of 5 iterations. If the loop reaches the limit, the model is forced to stop calling tools and produce a final text response.
 
-Cloud tools are the external-action layer for app and SaaS integrations such as GitHub, Gmail, Google Calendar, Slack, Notion, and Linear. Quarq keeps its own local identity tool native, while external app auth, tool search, and execution flow through the cloud-tool session.
+Cloud tools are the external-action layer for app and SaaS integrations such as GitHub, Gmail, Google Calendar, Slack, Notion, and Linear. Argus keeps its own local identity tool native, while external app auth, tool search, and execution flow through the cloud-tool session.
 
 Users can inspect and expand the enabled cloud toolkit at runtime:
 
@@ -505,7 +505,7 @@ header.
 
 ## Coding Agent Delegation
 
-Quarq delegates coding work instead of editing files directly in the chat flow.
+Argus delegates coding work instead of editing files directly in the chat flow.
 The first provider is Codex, launched through Codex CLI's MCP server with the
 default command:
 
@@ -517,7 +517,7 @@ Delegated tasks are durable:
 
 - `tasks.json` stores task status, provider, workspace, network mode, prompt, changed files, errors, and summary.
 - `logs/<task_id>.jsonl` stores every progress event.
-- `.quarq/coding_progress/<task_id>.jsonl` inside the coding workspace is a provider-side progress file Quarq asks Codex to update during long tasks. Quarq polls it and streams those progress rows to the CLI and subscribed channels.
+- `.argus/coding_progress/<task_id>.jsonl` inside the coding workspace is a provider-side progress file Argus asks Codex to update during long tasks. Argus polls it and streams those progress rows to the CLI and subscribed channels.
 - `config.json` stores local overrides for default provider, workspace, and coding-network default when changed from CLI/API/tool calls.
 - The CLI subscribes to `/api/events` and renders coding events in the transcript.
 - The user can reply to a waiting task with `/coding-reply <task_id> <message>`.
@@ -528,15 +528,15 @@ Delegated tasks are durable:
 Provider/workspace control:
 
 - `.env` provides startup defaults such as `CODING_AGENT_DEFAULT_PROVIDER` and `CODEX_WORKSPACE_ROOT`.
-- `CODEX_WORKSPACE_ROOT=.` is portable and resolves to the directory where the user launched the Quarq CLI/API.
+- `CODEX_WORKSPACE_ROOT=.` is portable and resolves to the directory where the user launched the Argus CLI/API.
 - `/coding-agents` lists supported providers and shows the current default.
 - `/coding-use <provider>` selects the default provider. V1 supports `codex`; `claude_code` and `cursor` are reserved provider slots for later.
 - `/coding-workspace <path>` sets the default workspace without editing `.env`.
 - `/coding-network on|off` sets whether new coding tasks can use network access. It defaults to `on` so package registries such as PyPI/npm work during coding tasks.
 - `/coding-network <task_id> on|off` changes the stored network mode for a specific task. `/coding-allow-network <task_id>` is a shortcut for turning it on.
-- If an older Codex thread was created before network was enabled, Quarq restarts Codex from the saved task context on the next continuation so the new network mode actually reaches the provider shell.
+- If an older Codex thread was created before network was enabled, Argus restarts Codex from the saved task context on the next continuation so the new network mode actually reaches the provider shell.
 - If a Telegram chat lists or inspects a running coding task, that chat is subscribed to future progress/completion updates for the task.
-- When `/connect telegram` succeeds, Quarq also subscribes known Telegram chats from `TELEGRAM_ALLOWED_USERS` or previous Telegram history to currently active coding tasks.
+- When `/connect telegram` succeeds, Argus also subscribes known Telegram chats from `TELEGRAM_ALLOWED_USERS` or previous Telegram history to currently active coding tasks.
 - Asking the agent to change the coding agent, workspace, or network mode can use the same native coding-agent config tool.
 
 Common Codex session flow:
@@ -553,9 +553,9 @@ Each Codex task stores the provider session id when Codex returns one, so
 blank session.
 
 Codex MCP returns the final tool result at the end of a provider call rather
-than streaming every shell stdout line to Quarq. For long work, Quarq injects a
+than streaming every shell stdout line to Argus. For long work, Argus injects a
 progress-reporting instruction and polls the workspace progress file above; if
-Codex cannot write it, Quarq still sends periodic heartbeat/status events.
+Codex cannot write it, Argus still sends periodic heartbeat/status events.
 
 For commands that need a task id, the CLI provides task-id selection. Type the
 command followed by a space, choose a recent task with `Ctrl+N` / `Ctrl+P`, then
@@ -589,7 +589,7 @@ Default safety policy:
 - Coding-task network access defaults to `on` inside the workspace-write sandbox. Turn it off globally with `/coding-network off`, or for a task with `/coding-network <task_id> off`.
 - Ask for user confirmation before destructive commands, writes outside the workspace, secret/env edits, git commits, git pushes, credential access, or anything the provider explicitly marks as confirmation-required.
 
-Coding requests use a shallow retrieval profile in normal channels. Quarq still
+Coding requests use a shallow retrieval profile in normal channels. Argus still
 retrieves recent local context, but it skips the HyDE LLM call and forces
 standard mode with small `top_k` instead of broad/deep memory search. Benchmark
 mode is unchanged.
@@ -632,11 +632,11 @@ That is it. `tools/__init__.py` automatically scans every subdirectory with a `s
 
 For user-scoped dynamic tools, a skill package can also export `<FOLDER_NAME>_TOOLS_FACTORY(runtime_config)`. This is how the cloud-tools skill creates session tools for the active `user_id` without hard-coding every external app schema into the prompt.
 
-This gives Quarq a clean capability expansion path: add a folder, describe the skill, export the tools, restart the process, and the agent can route to the new capability.
+This gives Argus a clean capability expansion path: add a folder, describe the skill, export the tools, restart the process, and the agent can route to the new capability.
 
 ## Benchmarks
 
-Quarq includes a LongMemEval runner:
+Argus includes a LongMemEval runner:
 
 ```bash
 python run_dataset_evals.py
@@ -657,7 +657,7 @@ For each benchmark history chunk, the agent splits the chunk into individual use
 
 ### Parallel Evaluation
 
-For faster local benchmark runs, Quarq also includes a process-based parallel evaluator:
+For faster local benchmark runs, Argus also includes a process-based parallel evaluator:
 
 ```bash
 EVAL_WORKERS=5 python run_dataset_evals_parallel.py
@@ -780,7 +780,7 @@ Current local LongMemEval-S metrics, computed from `reports/longmemeval_results.
 | single-session-user | 70 | 0 | 70 | 100.00% |
 | temporal-reasoning | 129 | 4 | 133 | 96.99% |
 
-These metrics represent the current LongMemEval-S progress while Quarq Agent is actively being improved. Some answers may change as failing or uncertain questions are rerun and fixes are added.
+These metrics represent the current LongMemEval-S progress while Argus Agent is actively being improved. Some answers may change as failing or uncertain questions are rerun and fixes are added.
 
 ## Requirements
 
@@ -793,6 +793,11 @@ These metrics represent the current LongMemEval-S progress while Quarq Agent is 
 ## Quick Start
 
 Clone the repo, then run the setup script from the repo root.
+
+```bash
+git clone https://github.com/quarqlabs/argus.git
+cd argus
+```
 
 macOS/Linux:
 
@@ -865,9 +870,9 @@ codex mcp-server
 ```
 
 The Python side uses the OpenAI Agents SDK dependency from `requirements.txt`.
-If the Codex CLI or the Agents SDK is missing, Quarq records a failed coding
+If the Codex CLI or the Agents SDK is missing, Argus records a failed coding
 task with a setup message instead of crashing. On macOS, if `codex` is not on
-the API worker's `PATH`, Quarq also checks the standard Codex.app binary at
+the API worker's `PATH`, Argus also checks the standard Codex.app binary at
 `/Applications/Codex.app/Contents/Resources/codex`.
 
 The API worker keeps process-lifetime chat history per channel and passes the
@@ -946,7 +951,7 @@ set-default start-channel none
 
 ## Agent Identity Config
 
-Quarq no longer needs Supabase for local identity updates. Runtime identity uses a local JSON config file, with `.env` values as defaults.
+Argus no longer needs Supabase for local identity updates. Runtime identity uses a local JSON config file, with `.env` values as defaults.
 
 Default location:
 
@@ -994,7 +999,7 @@ can use the same generic `POST /api/files` endpoint, then include the returned
 attachment IDs in `/api/jobs` or `/api/chat`.
 
 Telegram may allow a user to send a larger file into the chat, but the official
-bot download path is limited. Quarq defaults `CHANNEL_FILE_MAX_BYTES` to
+bot download path is limited. Argus defaults `CHANNEL_FILE_MAX_BYTES` to
 `20000000` bytes (about 20 MB) for channel attachments. If a file is too large
 or cannot be downloaded/read, the Telegram bot replies with a clear attachment
 failure message instead of silently answering from the caption alone.
@@ -1127,9 +1132,9 @@ This is what lets the console show useful loader text such as memory retrieval, 
 | `AGENT_PERSONALITY` | no | Default tone/personality when no local identity config exists. |
 | `AGENT_USE_CASES` | no | Default use-case description. Accepts a JSON array or comma-separated string. |
 | `AGENT_CUSTOM_PROMPT` | no | Default custom behavior instructions when no local identity config exists. |
-| `QUARQ_AGENT_VERSION` | no | Display-only version label for the control console. Defaults to `v0.4.4`. |
-| `QUARQ_MODEL_LABEL` | no | Display-only model label for the control console. Falls back to generation model labels. |
-| `QUARQ_REASONING_EFFORT` | no | Optional display suffix for the console model label. |
+| `ARGUS_AGENT_VERSION` | no | Display-only version label for the control console. Defaults to `v0.4.4`. |
+| `ARGUS_MODEL_LABEL` | no | Display-only model label for the control console. Falls back to generation model labels. |
+| `ARGUS_REASONING_EFFORT` | no | Optional display suffix for the console model label. |
 | `AGENT_DEBUG` | no | Set to `true`/`1` to show verbose debug logs from `agent.py`; metrics still print without debug. |
 | `CLOUD_TOOLS_API_KEY` | cloud tools only | Required to use external app tools through the cloud-tool session. |
 | `CLOUD_TOOLKITS` | no | Comma-separated cloud-tool slugs. Defaults to `github,gmail,googlecalendar,slack,notion,linear`. |
@@ -1140,7 +1145,7 @@ This is what lets the console show useful loader text such as memory retrieval, 
 | `CODEX_MCP_COMMAND` | no | Command used to launch Codex MCP. Defaults to `codex`. |
 | `CODEX_MCP_ARGS` | no | Comma-separated args for Codex MCP. Defaults to `mcp-server`. |
 | `CODEX_WORKSPACE_ROOT` | no | Workspace path for delegated coding work. `.env.example` uses `.`, resolved from the user's launch directory. |
-| `CODEX_APPROVAL_POLICY` | no | Approval policy label. Defaults to `quarq-safe-auto`. |
+| `CODEX_APPROVAL_POLICY` | no | Approval policy label. Defaults to `argus-safe-auto`. |
 | `CODEX_NETWORK_ACCESS` | no | Allows network access for new Codex coding tasks inside the workspace-write sandbox. Defaults to `true`; use `/coding-network off` to disable locally. |
 | `CODEX_TASK_TIMEOUT_SECONDS` | no | Max runtime for a delegated coding task. Defaults to `1800`. |
 | `TELEGRAM_BOT_TOKEN` | Telegram only | Bot token from `@BotFather`. Required for `/connect telegram`. |
@@ -1173,7 +1178,7 @@ local_memory/             Local FAISS and JSON memory stores
 
 ## Design Principles
 
-Quarq is built around a few hard rules:
+Argus is built around a few hard rules:
 
 - Retrieve broadly, reason narrowly.
 - Store memories with ownership, dates, and qualifiers intact.
@@ -1185,7 +1190,7 @@ Quarq is built around a few hard rules:
 
 ## Status
 
-Quarq Agent v0.4.4 is an active OSS release candidate.
+Argus Agent v0.4.4 is an active OSS release candidate.
 
 The current version is optimized for long-memory evaluation and single-user local memory. The next natural steps are:
 

@@ -26,7 +26,7 @@ KNOWN_CODEX_COMMANDS = (
 
 
 _CODEX_MCP_SESSIONS: dict[str, "CodexMcpSession"] = {}
-PROGRESS_RELATIVE_DIR = Path(".quarq") / "coding_progress"
+PROGRESS_RELATIVE_DIR = Path(".argus") / "coding_progress"
 
 
 def resolve_codex_command(command: str) -> str | None:
@@ -75,7 +75,7 @@ def runtime_check(settings: CodingAgentSettings) -> tuple[bool, str]:
     if importlib.util.find_spec("agents") is None:
         return False, (
             "The OpenAI Agents SDK is not installed. Install `openai-agents` "
-            "from requirements.txt, then restart Quarq."
+            "from requirements.txt, then restart Argus."
         )
     return True, ""
 
@@ -150,7 +150,7 @@ def continuation_restart_prompt(task: dict[str, Any], prompt: str) -> str:
     original_prompt = str(task.get("prompt") or "").strip()
     result_summary = str(task.get("result_summary") or "").strip()
     return (
-        "Continue this existing Quarq coding task. The previous Codex MCP session "
+        "Continue this existing Argus coding task. The previous Codex MCP session "
         "was no longer available, so inspect the workspace and continue from the "
         "files already on disk.\n\n"
         f"Saved task context:\n{original_prompt or '(none)'}\n\n"
@@ -170,7 +170,7 @@ def progress_file_path(workspace_path: str, task_id: str) -> Path:
 def progress_reporting_prompt(prompt: str, task_id: str, progress_path: str) -> str:
     return (
         f"{prompt.strip()}\n\n"
-        "Quarq progress reporting requirement:\n"
+        "Argus progress reporting requirement:\n"
         f"- This task id is `{task_id}`.\n"
         f"- Append progress updates as JSON Lines to `{progress_path}` in the workspace.\n"
         "- Write an update before and after each major step, including planning, file inspection, "

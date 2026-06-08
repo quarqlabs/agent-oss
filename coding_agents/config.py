@@ -56,7 +56,7 @@ def resolve_path(
 
 
 def launch_cwd() -> Path:
-    return resolve_path(os.getenv("QUARQ_LAUNCH_CWD") or os.getcwd(), BASE_DIR)
+    return resolve_path(os.getenv("ARGUS_LAUNCH_CWD") or os.getcwd(), BASE_DIR)
 
 
 def parse_args(value: str | None) -> list[str]:
@@ -101,7 +101,7 @@ def base_settings_from_env() -> CodingAgentSettings:
             workspace_base,
             relative_to=workspace_base,
         ),
-        approval_policy=(os.getenv("CODEX_APPROVAL_POLICY") or "quarq-safe-auto").strip(),
+        approval_policy=(os.getenv("CODEX_APPROVAL_POLICY") or "argus-safe-auto").strip(),
         network_access=parse_bool(os.getenv("CODEX_NETWORK_ACCESS"), default=True),
         timeout_seconds=int(os.getenv("CODEX_TASK_TIMEOUT_SECONDS") or "1800"),
         memory_root=memory_root,

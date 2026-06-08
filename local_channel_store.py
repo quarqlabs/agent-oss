@@ -1,4 +1,4 @@
-"""Persistent channel history and attachment storage for local Quarq channels."""
+"""Persistent channel history and attachment storage for local Argus channels."""
 
 from __future__ import annotations
 

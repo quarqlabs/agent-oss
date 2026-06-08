@@ -1,5 +1,5 @@
 """
-Quarq local control console.
+Argus local control console.
 
 This file is intentionally separate from agent.py. It starts the existing
 FastAPI worker and connects local CLI input to /api/chat. Channel integrations
@@ -98,7 +98,7 @@ load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
 LAUNCH_CWD = Path.cwd().resolve()
-os.environ.setdefault("QUARQ_LAUNCH_CWD", str(LAUNCH_CWD))
+os.environ.setdefault("ARGUS_LAUNCH_CWD", str(LAUNCH_CWD))
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 TELEGRAM_WEBHOOK_PATH = "/api/telegram/webhook"
@@ -116,7 +116,7 @@ for noisy_logger in ("httpx", "httpcore", "openai", "openai._base_client"):
 
 if all([Binding, RichLog, Static, TextualApp, TextualTextArea]):
 
-    class QuarqTextualApp(TextualApp):
+    class ArgusTextualApp(TextualApp):
         CSS = """
         Screen {
             background: #111318;
@@ -220,12 +220,12 @@ if all([Binding, RichLog, Static, TextualApp, TextualTextArea]):
                 markup=False,
             )
             yield Static("", id="command_palette")
-            yield Static("Message Quarq   Enter = send   Shift+Enter = newline", id="input_label")
+            yield Static("Message Argus   Enter = send   Shift+Enter = newline", id="input_label")
             yield TextualTextArea(
                 soft_wrap=True,
                 show_line_numbers=False,
                 compact=True,
-                placeholder="Describe a task or ask Quarq...",
+                placeholder="Describe a task or ask Argus...",
                 id="message",
             )
             yield Static("", id="footer")
@@ -396,12 +396,12 @@ if all([Binding, RichLog, Static, TextualApp, TextualTextArea]):
 
 
 else:
-    QuarqTextualApp = None
+    ArgusTextualApp = None
 
 
 class TextualTerminalUi:
     def __init__(self, api_base: str):
-        if QuarqTextualApp is None:
+        if ArgusTextualApp is None:
             raise RuntimeError("textual is not available")
 
         self.api_base = api_base
@@ -416,7 +416,7 @@ class TextualTerminalUi:
         self.model_label = model_label()
         self.directory_label = compact_path(LAUNCH_CWD)
         self.agent_name = load_cli_agent_name()
-        self.agent_version = os.getenv("QUARQ_AGENT_VERSION", "v0.4.4").strip() or "v0.4.4"
+        self.agent_version = os.getenv("ARGUS_AGENT_VERSION", "v0.4.4").strip() or "v0.4.4"
         self.coding_agent_label = "codex"
         self.coding_workspace_label = compact_path(LAUNCH_CWD)
         self.coding_network_label = "net:on"
@@ -424,7 +424,7 @@ class TextualTerminalUi:
         self.connected_channels: set[str] = set()
         self.default_start_channels = set(load_cli_config().get("startup_channels", []))
         self.output_blocks.append(welcome_block())
-        self.app = QuarqTextualApp(self)
+        self.app = ArgusTextualApp(self)
 
     def header_renderable(self) -> Panel:
         self.refresh_dynamic_labels()
@@ -750,7 +750,7 @@ class TerminalUi:
 
     def _input_label_fragments(self) -> list[tuple[str, str]]:
         return [
-            ("class:input.label", " Message Quarq "),
+            ("class:input.label", " Message Argus "),
             ("class:input.label.dim", "Enter to send"),
         ]
 
@@ -985,7 +985,7 @@ class EventLog:
                 self.console.print(Padding(Text(message, style="white"), (0, 0, 0, 2)))
 
 
-class QuarqApiClient:
+class ArgusApiClient:
     def __init__(self, base_url: str, events: EventLog):
         self.base_url = base_url.rstrip("/")
         self.events = events
@@ -1523,13 +1523,13 @@ def event_style(kind: str) -> str:
 
 def model_label() -> str:
     model = (
-        os.getenv("QUARQ_MODEL_LABEL")
+        os.getenv("ARGUS_MODEL_LABEL")
         or os.getenv("GENERATION_MODEL")
         or os.getenv("OPENAI_MODEL")
         or "gpt-4.1"
     ).strip()
     effort = (
-        os.getenv("QUARQ_REASONING_EFFORT")
+        os.getenv("ARGUS_REASONING_EFFORT")
         or os.getenv("REASONING_EFFORT")
         or ""
     ).strip()
@@ -2286,14 +2286,14 @@ def print_header(console: Console, api_base: str) -> None:
 
 
 def build_terminal_ui(api_base: str) -> TextualTerminalUi | None:
-    if QuarqTextualApp is None:
+    if ArgusTextualApp is None:
         return None
     return TextualTerminalUi(api_base)
 
 
 def start_api_server(host: str, port: int, log_level: str) -> subprocess.Popen:
     os.environ.setdefault("USER_ID", "local_cli_user")
-    os.environ.setdefault("QUARQ_LAUNCH_CWD", str(LAUNCH_CWD))
+    os.environ.setdefault("ARGUS_LAUNCH_CWD", str(LAUNCH_CWD))
     child_env = os.environ.copy()
     child_env.setdefault("PYTHONUTF8", "1")
     child_env.setdefault("PYTHONIOENCODING", "utf-8:replace")
@@ -2332,7 +2332,7 @@ async def stop_api_server(server: subprocess.Popen) -> None:
         await asyncio.to_thread(server.wait)
 
 
-async def wait_for_api(api: QuarqApiClient, timeout: float) -> None:
+async def wait_for_api(api: ArgusApiClient, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     last_error: Exception | None = None
 
@@ -2348,7 +2348,7 @@ async def wait_for_api(api: QuarqApiClient, timeout: float) -> None:
 
 
 async def poll_job_until_complete(
-    api: QuarqApiClient,
+    api: ArgusApiClient,
     job_id: str,
     ui: TerminalUi | None,
 ) -> dict[str, Any]:
@@ -2382,7 +2382,7 @@ async def poll_job_until_complete(
 
 
 async def cli_input_loop(
-    api: QuarqApiClient,
+    api: ArgusApiClient,
     events: EventLog,
     console: Console,
     ui: TerminalUi | None,
@@ -2700,7 +2700,7 @@ async def cli_input_loop(
 
 
 async def api_event_loop(
-    api: QuarqApiClient,
+    api: ArgusApiClient,
     events: EventLog,
     stop_event: asyncio.Event,
 ) -> None:
@@ -2788,12 +2788,12 @@ def update_status_from_api_event(ui: TerminalUi, event: dict[str, Any]) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run the Quarq local control console.")
-    parser.add_argument("--host", default=os.getenv("QUARQ_API_HOST", DEFAULT_HOST))
-    parser.add_argument("--port", type=int, default=int(os.getenv("QUARQ_API_PORT", DEFAULT_PORT)))
+    parser = argparse.ArgumentParser(description="Run the Argus local control console.")
+    parser.add_argument("--host", default=os.getenv("ARGUS_API_HOST", DEFAULT_HOST))
+    parser.add_argument("--port", type=int, default=int(os.getenv("ARGUS_API_PORT", DEFAULT_PORT)))
     parser.add_argument("--no-server", action="store_true", help="Connect to an already running API instead of starting main:app.")
     parser.add_argument("--api-base", default=None, help="Override API base URL, for example http://127.0.0.1:8000.")
-    parser.add_argument("--server-log-level", default=os.getenv("QUARQ_API_LOG_LEVEL", "warning"))
+    parser.add_argument("--server-log-level", default=os.getenv("ARGUS_API_LOG_LEVEL", "warning"))
     parser.add_argument("--no-tunnel", action="store_true", help="Disable public tunnel setup for channel connections.")
     parser.add_argument("--cloudflared", default=os.getenv("CLOUDFLARED_BIN", "cloudflared"), help="Path or command name for cloudflared.")
     return parser
@@ -2808,7 +2808,7 @@ async def amain() -> int:
     if ui is None:
         print_header(console, api_base)
     events = EventLog(console, ui)
-    api = QuarqApiClient(api_base, events)
+    api = ArgusApiClient(api_base, events)
     server = None
     channel_manager = ChannelManager(
         api_base,

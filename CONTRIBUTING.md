@@ -1,4 +1,4 @@
-# Contributing to Quarq Agent
+# Contributing to Argus Agent
 
 Thank you for your interest in contributing. This document covers how to set up a development environment, the conventions we follow, and the process for submitting changes.
 
@@ -87,7 +87,7 @@ The skill registry in `tools/__init__.py` auto-discovers any folder that contain
 
 ## Reporting Issues
 
-Please use [GitHub Issues](https://github.com/quarqlabs/agent-oss/issues) to report bugs or request features. Include:
+Please use [GitHub Issues](https://github.com/quarqlabs/argus/issues) to report bugs or request features. Include:
 
 - A clear description of the problem or request.
 - Steps to reproduce (for bugs).

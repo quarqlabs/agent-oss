@@ -1,4 +1,4 @@
-# Ruff configuration for Quarq Agent
+# Ruff configuration for Argus Agent
 # https://docs.astral.sh/ruff/configuration/
 
 target-version = "py311"

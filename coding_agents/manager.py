@@ -25,7 +25,7 @@ EventCallback = Callable[[str, str, str, dict[str, Any]], Awaitable[Any] | Any]
 
 INTERRUPTED_TASK_STATUSES = {"queued", "running"}
 INTERRUPTED_TASK_MESSAGE = (
-    "This coding task was interrupted because Quarq restarted or the coding "
+    "This coding task was interrupted because Argus restarted or the coding "
     "runner is no longer active. Continue it with `/coding-continue <task_id> "
     "<message>` or start fresh with `/coding-new <task>`."
 )
@@ -55,7 +55,7 @@ class CodingAgentManager:
         if not settings.enabled:
             return {
                 "status": "disabled",
-                "message": "Coding agents are disabled. Set CODING_AGENTS_ENABLED=true and restart Quarq.",
+                "message": "Coding agents are disabled. Set CODING_AGENTS_ENABLED=true and restart Argus.",
             }
         if provider != "codex":
             return {

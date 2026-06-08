@@ -1,4 +1,4 @@
-# Quarq Agent v0.2.0
+# Argus Agent v0.2.0
 
 
 
@@ -51,8 +51,8 @@ llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1",
     temperature=0,
     default_headers={
-        "HTTP-Referer": "https://quarq.io",
-        "X-Title": "Quarq Agent V2",
+        "HTTP-Referer": "https://github.com/quarqlabs/argus",
+        "X-Title": "Argus Agent V2",
     },
 )
 
@@ -62,8 +62,8 @@ gen_llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1",
     temperature=0,
     default_headers={
-        "HTTP-Referer": "https://quarq.io",
-        "X-Title": "Quarq Agent V2",
+        "HTTP-Referer": "https://github.com/quarqlabs/argus",
+        "X-Title": "Argus Agent V2",
     },
 )
 
@@ -766,7 +766,7 @@ async def learn_vector_memory(
 
     if memory_type == "Semantic":
         definition = "Factual, permanent information about the user (e.g., name, job, favored brands, frequently visited locations, tech stack preferences)."
-        example = "User's name is Sourav, works at Quarq Labs, and shops at Target."
+        example = "User's name is Sourav, works at Argus Labs, and shops at Target."
         exclusion_rule = "DO NOT extract temporary states, greetings, or small talk."
     else:
         definition = "Significant experiences, tasks completed, purchases made, or milestone events, including the specific context of WHO, WHAT, WHERE, WHEN, and HOW."

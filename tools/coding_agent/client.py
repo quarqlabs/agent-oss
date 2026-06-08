@@ -1,4 +1,4 @@
-"""LangChain tools for Quarq coding-agent delegation."""
+"""LangChain tools for Argus coding-agent delegation."""
 
 from __future__ import annotations
 

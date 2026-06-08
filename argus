@@ -12,8 +12,6 @@ ROOT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
 
 if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
   PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
-elif [ -x "$ROOT_DIR/agent-oss/bin/python" ]; then
-  PYTHON_BIN="$ROOT_DIR/agent-oss/bin/python"
 else
   PYTHON_BIN="${PYTHON:-python3}"
 fi

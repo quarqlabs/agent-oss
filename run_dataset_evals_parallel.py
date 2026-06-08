@@ -59,7 +59,7 @@ judge_llm = ChatOpenAI(
 QUESTION_IDS = []
 
 # These are intentionally imported lazily inside workers after AGENT_ID is set.
-get_quarq_response = None
+get_argus_response = None
 wipe_all_memories = None
 
 
@@ -403,7 +403,7 @@ async def feed_memory_chunks(
 
         prompt = f"Review and remember this conversation history:\n\n{chunk['text']}"
 
-        await get_quarq_response(
+        await get_argus_response(
             user_prompt=prompt,
             chat_history=[],
             user_id=user_id,
@@ -417,16 +417,16 @@ async def feed_memory_chunks(
 
 
 async def run_worker_dataset(dataset: list):
-    global get_quarq_response, wipe_all_memories
+    global get_argus_response, wipe_all_memories
 
     worker_label = WORKER_ID if WORKER_ID is not None else "single"
     agent_id = os.getenv("AGENT_ID") or f"{BASE_AGENT_ID}_eval_worker_{worker_label}"
     os.environ["AGENT_ID"] = agent_id
 
-    from agent_connector import get_quarq_response as _get_quarq_response
+    from agent_connector import get_argus_response as _get_argus_response
     from agent import wipe_all_memories as _wipe_all_memories
 
-    get_quarq_response = _get_quarq_response
+    get_argus_response = _get_argus_response
     wipe_all_memories = _wipe_all_memories
 
     print(f"🚀 RUNNING LONGMEMEVAL worker={worker_label} agent_id={agent_id}")
@@ -484,7 +484,7 @@ async def run_worker_dataset(dataset: list):
 
         print(f"\n❓ [worker {worker_label}] ASKING: {question}")
 
-        agent_answer, metrics, contexts = await get_quarq_response(
+        agent_answer, metrics, contexts = await get_argus_response(
             user_prompt=question,
             chat_history=[],
             user_id=user_id,

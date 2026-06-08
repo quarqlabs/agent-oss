@@ -11,7 +11,7 @@
 
 Please **do not** open a public GitHub issue for security vulnerabilities.
 
-Instead, report them by emailing **support@quarq.io**. Include:
+Instead, report them through **GitHub Security Advisories for `quarqlabs/argus`**. Include:
 
 - A description of the vulnerability and its potential impact.
 - Step-by-step reproduction instructions.

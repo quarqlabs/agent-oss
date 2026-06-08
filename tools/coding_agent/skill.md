@@ -6,7 +6,7 @@ triggers: codex, coding agent, fix bug, implement, refactor, run tests, edit cod
 
 # Coding Agent Skill
 
-Use this skill when the user asks Quarq to perform software engineering work in a repository:
+Use this skill when the user asks Argus to perform software engineering work in a repository:
 
 - implement a feature
 - fix a bug

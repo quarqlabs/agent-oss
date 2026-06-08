@@ -1,4 +1,4 @@
-# Quarq Agent v0.1.0
+# Argus Agent v0.1.0
 
 
 import os
@@ -83,8 +83,8 @@ llm = ChatOpenAI(
     base_url="https://openrouter.ai/api/v1",
     temperature=0,
     default_headers={
-        "HTTP-Referer": "https://quarq.io",  # Optional: Your site URL for OpenRouter rankings
-        "X-Title": "Quarq Agent",  # Optional: Your App name for OpenRouter rankings
+        "HTTP-Referer": "https://github.com/quarqlabs/argus",  # Optional: Your site URL for OpenRouter rankings
+        "X-Title": "Argus Agent",  # Optional: Your App name for OpenRouter rankings
     },
 )
 
@@ -432,7 +432,7 @@ _user_chat_histories: dict[str, list[BaseMessage]] = {}
 
 async def get_agent_response(user_prompt: str, telegram_id: str) -> str:
     """
-    Public API for the Quarq Agent. Call this from FastAPI/Telegram webhook.
+    Public API for the Argus Agent. Call this from FastAPI/Telegram webhook.
     Manages per-user chat history automatically.
 
     Args:

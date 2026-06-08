@@ -22,7 +22,7 @@ def make_settings(tmp_path):
         codex_command="codex",
         codex_args=["mcp-server"],
         workspace_root=tmp_path,
-        approval_policy="quarq-safe-auto",
+        approval_policy="argus-safe-auto",
         network_access=True,
         timeout_seconds=30,
         memory_root=tmp_path / "memory",
@@ -117,9 +117,9 @@ def test_describe_current_work_uses_task_language():
 
 
 def test_progress_prompt_and_formatting():
-    prompt = progress_reporting_prompt("train the model", "code_123", ".quarq/coding_progress/code_123.jsonl")
+    prompt = progress_reporting_prompt("train the model", "code_123", ".argus/coding_progress/code_123.jsonl")
 
-    assert ".quarq/coding_progress/code_123.jsonl" in prompt
+    assert ".argus/coding_progress/code_123.jsonl" in prompt
     assert "Append progress updates as JSON Lines" in prompt
     assert "Stage: preprocessing" in format_progress_record(
         {"stage": "preprocessing", "status": "running", "detail": "normalizing images"}
@@ -183,7 +183,7 @@ def test_codex_runner_emits_progress_file_updates(tmp_path):
         workspace_path=str(tmp_path),
         prompt="train model",
     )
-    progress_path = tmp_path / ".quarq" / "coding_progress" / f"{task['id']}.jsonl"
+    progress_path = tmp_path / ".argus" / "coding_progress" / f"{task['id']}.jsonl"
     progress_path.parent.mkdir(parents=True)
     progress_path.write_text(
         '{"stage":"cleaning","status":"running","detail":"removed bad samples"}\n'

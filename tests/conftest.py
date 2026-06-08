@@ -1,4 +1,4 @@
-# Shared fixtures for the Quarq Agent test suite.
+# Shared fixtures for the Argus Agent test suite.
 # All tests run without network access or API keys.
 
 import os

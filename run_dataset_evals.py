@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from pydantic import SecretStr
 from langchain_core.messages import HumanMessage
 
-from agent_connector import get_quarq_response
+from agent_connector import get_argus_response
 from agent import wipe_all_memories
 from langchain_openai import ChatOpenAI
 
@@ -329,7 +329,7 @@ async def feed_memory_chunks(
 
         prompt = f"Review and remember this conversation history:\n\n{chunk['text']}"
 
-        await get_quarq_response(
+        await get_argus_response(
             user_prompt=prompt,
             chat_history=[],
             user_id=user_id,
@@ -437,7 +437,7 @@ async def run_longmemeval():
         
         print(f"\n❓ ASKING: {question}")
 
-        agent_answer, metrics, contexts = await get_quarq_response(
+        agent_answer, metrics, contexts = await get_argus_response(
             user_prompt=question,
             chat_history=[],
             user_id=user_id,

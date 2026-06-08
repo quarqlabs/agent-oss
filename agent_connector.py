@@ -1,6 +1,6 @@
 """
 Connector module for external API routes (FastAPI, Webhooks, etc.) 
-to interface with the Quarq Agent smoothly.
+to interface with the Argus Agent smoothly.
 
 This is the SINGLE integration gateway — all external callers (main.py,
 webhooks, future APIs) go through this module. They never import from
@@ -13,7 +13,7 @@ from langchain_core.messages import BaseMessage
 from agent import app, AgentState
 
 
-async def get_quarq_response(
+async def get_argus_response(
     user_prompt: str, 
     chat_history: Sequence[BaseMessage], 
     user_id: str, 
@@ -26,7 +26,7 @@ async def get_quarq_response(
     attachments_context: str = "",
 ) -> Tuple[str, dict,dict]:
     """
-    Public API to invoke the Quarq Agent.
+    Public API to invoke the Argus Agent.
     
     Args:
         user_prompt (str): The current message from the user.

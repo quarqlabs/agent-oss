@@ -1,5 +1,5 @@
 # =====================================================
-# Quarq Agent — Single-Tenant Worker
+# Argus Agent — Single-Tenant Worker
 # =====================================================
 # This container serves exactly one user. Identity is injected at
 # `docker run` time via the USER_ID environment variable; the Node
@@ -19,7 +19,7 @@ from fastapi import BackgroundTasks, FastAPI, Header, HTTPException
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-from agent_connector import get_quarq_response
+from agent_connector import get_argus_response
 from agent import (
     MEMORY_INGESTION_ACK,
     PENDING_LEARNING_TASKS,
@@ -50,7 +50,7 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)-7s | %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-logger = logging.getLogger("quarq_agent")
+logger = logging.getLogger("argus_agent")
 for noisy_logger in ("httpx", "httpcore", "openai", "openai._base_client"):
     logging.getLogger(noisy_logger).setLevel(logging.WARNING)
 
@@ -77,7 +77,7 @@ EVENT_BUFFER_SIZE = 300
 CHAT_HISTORY_WINDOW_MESSAGES = 8
 
 
-app = FastAPI(title="Quarq Agent", version="0.4.4")
+app = FastAPI(title="Argus Agent", version="0.4.4")
 EVENTS = deque(maxlen=EVENT_BUFFER_SIZE)
 EVENT_LOCK = asyncio.Lock()
 EVENT_SEQ = 0
@@ -1175,7 +1175,7 @@ async def run_chat_job(job_id: str) -> None:
                 context_attachment_ids.append(attachment_id)
         await refresh_attachments_for_context(context_attachment_ids)
         attachment_context = render_attachment_context(context_attachment_ids)
-        response, metrics, contexts = await get_quarq_response(
+        response, metrics, contexts = await get_argus_response(
             user_prompt=req.prompt,
             user_id=AGENT_USER_ID,
             channel_type=req.channel_type,
