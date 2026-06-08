@@ -49,6 +49,52 @@ def debug_print(*args, **kwargs) -> None:
         print(*args, **kwargs)
 
 
+CODING_TASK_KEYWORDS = (
+    "codex",
+    "coding agent",
+    "codebase",
+    "repo",
+    "repository",
+    "implement",
+    "fix bug",
+    "debug",
+    "refactor",
+    "run tests",
+    "failing test",
+    "edit code",
+    "edit file",
+    "pull request",
+)
+
+
+def is_coding_task_prompt(prompt: str) -> bool:
+    text = re.sub(r"\s+", " ", str(prompt or "").lower()).strip()
+    return any(keyword in text for keyword in CODING_TASK_KEYWORDS)
+
+
+def coding_retrieval_profile(prompt: str) -> dict[str, Any]:
+    text = re.sub(r"\s+", " ", str(prompt or "").strip())
+    keywords = []
+    for token in re.findall(r"[A-Za-z_][A-Za-z0-9_.-]{2,}", text):
+        lowered = token.lower()
+        if lowered not in {"please", "could", "would", "should", "that", "this", "with", "from"}:
+            keywords.append(token)
+        if len(keywords) >= 4:
+            break
+    return {
+        "vector_queries": [
+            f"User's coding task context: {text[:180]}",
+            "User's recent coding agent task, repository, implementation, bug, tests",
+        ],
+        "keywords": keywords,
+        "search_mode": "standard",
+        "threshold": 0.42,
+        "top_k": 4,
+        "keyword_top_k": 4,
+        "max_lines": 24,
+    }
+
+
 
 AGENT_ID = os.getenv("AGENT_ID") or "local_agent"
 USER_ID = os.getenv("USER_ID")
@@ -1770,6 +1816,15 @@ def public_tool_display_name(name: str | None) -> str:
         return "cloud tools"
     if text == "configure_cloud_tools":
         return "cloud tools"
+    if text == "coding_agent" or text in {
+        "configure_coding_agent",
+        "start_coding_task",
+        "reply_to_coding_task",
+        "get_coding_task_status",
+        "get_coding_task_logs",
+        "cancel_coding_task",
+    }:
+        return "coding agent"
     return text
 
 
@@ -1850,6 +1905,11 @@ async def retrieve_memories_node(state: AgentState):
     history_text = "\n".join(
         [f"{msg.type}: {msg.content}" for msg in state["chat_history"][-5:]]
     )
+    coding_profile = (
+        state.get("channel_type") != "benchmark"
+        and is_coding_task_prompt(user_prompt)
+    )
+    retrieval_profile = coding_retrieval_profile(user_prompt) if coding_profile else {}
 
     # 🛠️ NEW: Use the provided state date, fallback to system clock if none provided
     if state.get("current_date"):
@@ -1983,17 +2043,26 @@ async def retrieve_memories_node(state: AgentState):
     
     """
 
+    if retrieval_profile:
+        debug_print("HYDE skipped: using lightweight coding retrieval profile.")
+        content = json.dumps(
+            {
+                "vector_queries": retrieval_profile["vector_queries"],
+                "keywords": ",".join(retrieval_profile["keywords"]),
+                "search_mode": retrieval_profile["search_mode"],
+            }
+        )
+    else:
+        hyde_response = await retrieval_llm.ainvoke([HumanMessage(content=hyde_prompt)])
+        # 🛠️ FIXED: Use robust extractor
+        content = extract_pure_text(hyde_response)
+        
+        
 
-    hyde_response = await retrieval_llm.ainvoke([HumanMessage(content=hyde_prompt)])
-    # 🛠️ FIXED: Use robust extractor
-    content = extract_pure_text(hyde_response)
-    
-    
-
-    # Track HyDE tokens
-    m_hyde = get_token_metrics(hyde_response)
-    in_tokens += m_hyde["input"]
-    out_tokens += m_hyde["output"]
+        # Track HyDE tokens
+        m_hyde = get_token_metrics(hyde_response)
+        in_tokens += m_hyde["input"]
+        out_tokens += m_hyde["output"]
 
     
     # Clean JSON
@@ -2058,10 +2127,23 @@ async def retrieve_memories_node(state: AgentState):
     if not search_queries:
         search_queries = [user_prompt]
 
-    # 🛠️ DYNAMIC THRESHOLD APPLICATION
-    current_threshold = 0.28 if search_mode == "deep" else 0.38
+    if retrieval_profile:
+        search_queries = retrieval_profile["vector_queries"]
+        keywords = retrieval_profile["keywords"]
+        search_mode = "standard"
 
-    current_top_k = 20 if search_mode == "deep" else 10
+    # 🛠️ DYNAMIC THRESHOLD APPLICATION
+    current_threshold = retrieval_profile.get(
+        "threshold",
+        0.28 if search_mode == "deep" else 0.38,
+    )
+
+    current_top_k = retrieval_profile.get(
+        "top_k",
+        20 if search_mode == "deep" else 10,
+    )
+    keyword_top_k = retrieval_profile.get("keyword_top_k", 15)
+    retrieval_max_lines = retrieval_profile.get("max_lines", 70)
 
     await report_job_status(
         state,
@@ -2082,8 +2164,8 @@ async def retrieve_memories_node(state: AgentState):
 
     if keywords:
         # Add the Keyword Search tasks to the concurrent pool
-        semantic_tasks.append(semantic_db.keyword_search(keywords, top_k=15))
-        episodic_tasks.append(episodic_db.keyword_search(keywords, top_k=15))
+        semantic_tasks.append(semantic_db.keyword_search(keywords, top_k=keyword_top_k))
+        episodic_tasks.append(episodic_db.keyword_search(keywords, top_k=keyword_top_k))
 
     all_semantic_results = await asyncio.gather(*semantic_tasks)
     all_episodic_results = await asyncio.gather(*episodic_tasks)
@@ -2105,8 +2187,8 @@ async def retrieve_memories_node(state: AgentState):
     combined_episodic = deduplicate_memories(all_episodic_results)
 
     # Apply Temporal Sorting
-    semantic_result = sort_memories_by_recency(combined_semantic,max_lines=70)
-    episodic_result = sort_memories_by_recency(combined_episodic,max_lines=70)
+    semantic_result = sort_memories_by_recency(combined_semantic,max_lines=retrieval_max_lines)
+    episodic_result = sort_memories_by_recency(combined_episodic,max_lines=retrieval_max_lines)
 
     all_rules=[]
       # 🛠️ UPDATED: Procedural Tag Routing with CoT and Fallback

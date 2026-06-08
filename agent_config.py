@@ -15,7 +15,7 @@ from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_AGENT_CONFIG = {
-    "agent_name": "Quarq Agent",
+    "agent_name": "Argus",
     "agent_personality": "professional and helpful",
     "agent_use_cases": ["general assistance"],
     "agent_custom_prompt": "",

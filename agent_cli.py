@@ -32,7 +32,10 @@ from rich.padding import Padding
 from rich.rule import Rule
 from rich.text import Text
 
+from agent_config import load_agent_config
 from agent_tools_config import format_slug_list, load_enabled_cloud_tools
+from coding_agents.config import coding_config_summary, load_settings
+from coding_agents.task_store import CodingTaskStore
 
 try:
     from textual.app import App as TextualApp
@@ -74,6 +77,8 @@ except ImportError:  # pragma: no cover - supported fallback before deps install
 load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent
+LAUNCH_CWD = Path.cwd().resolve()
+os.environ.setdefault("QUARQ_LAUNCH_CWD", str(LAUNCH_CWD))
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 TELEGRAM_WEBHOOK_PATH = "/api/telegram/webhook"
@@ -98,8 +103,15 @@ if all([Binding, RichLog, Static, TextualApp, TextualTextArea]):
             color: #c9d1d9;
         }
 
+        Screen > .screen--selection,
+        .screen--selection {
+            background: #1f6feb;
+            color: #ffffff;
+            text-style: bold;
+        }
+
         #header {
-            height: 7;
+            height: 8;
             padding: 1 2 0 2;
             background: #111318;
             color: #8b949e;
@@ -159,6 +171,10 @@ if all([Binding, RichLog, Static, TextualApp, TextualTextArea]):
             Binding("escape,enter", "send_message", "Send", priority=True),
             Binding("ctrl+s", "send_message", "Send", show=False, priority=True),
             Binding("tab", "complete_command", "Complete", show=False, priority=True),
+            Binding("ctrl+n", "next_suggestion", "Next suggestion", show=False, priority=True),
+            Binding("ctrl+p", "previous_suggestion", "Previous suggestion", show=False, priority=True),
+            Binding("super+a", "select_message_all", "Select input", show=False, priority=True),
+            Binding("super+c", "copy_active_selection", "Copy selection", show=False, priority=True),
             Binding("pageup", "page_up", "Older"),
             Binding("pagedown", "page_down", "Newer"),
             Binding("ctrl+up", "line_up", "Older"),
@@ -167,6 +183,7 @@ if all([Binding, RichLog, Static, TextualApp, TextualTextArea]):
             Binding("alt+j", "line_down", "Newer"),
             Binding("ctrl+c", "quit_requested", "Quit", priority=True),
             Binding("ctrl+d", "quit_requested", "Quit", priority=True),
+            Binding("ctrl+q", "quit_requested", "Quit", priority=True),
         ]
 
         def __init__(self, ui: "TextualTerminalUi"):
@@ -203,6 +220,44 @@ if all([Binding, RichLog, Static, TextualApp, TextualTextArea]):
         def action_quit_requested(self) -> None:
             self.ui.input_queue.put_nowait("/quit")
 
+        def action_select_message_all(self) -> None:
+            message = self.query_one("#message", TextualTextArea)
+            try:
+                self.screen.clear_selection()
+            except Exception:
+                pass
+            message.focus()
+            message.action_select_all()
+
+        def action_copy_active_selection(self) -> None:
+            message = self.query_one("#message", TextualTextArea)
+            selected_message_text = str(getattr(message, "selected_text", "") or "")
+            if selected_message_text:
+                self.copy_to_clipboard(selected_message_text)
+                self.ui.set_status("copied input selection", "ready")
+                self.refresh_footer()
+                return
+
+            selected_screen_text = ""
+            try:
+                selected_screen_text = str(self.screen.get_selected_text() or "")
+            except Exception:
+                selected_screen_text = ""
+
+            if not selected_screen_text.strip():
+                self.ui.set_status("select text first", "notice")
+                self.refresh_footer()
+                return
+
+            if len(selected_screen_text) > 12000 or selected_screen_text.count("\n") > 200:
+                self.ui.set_status("selection too large", "notice")
+                self.refresh_footer()
+                return
+
+            self.copy_to_clipboard(selected_screen_text)
+            self.ui.set_status("copied selection", "ready")
+            self.refresh_footer()
+
         def action_send_message(self) -> None:
             message = self.query_one("#message", TextualTextArea)
             text = str(message.text or "").strip()
@@ -223,11 +278,26 @@ if all([Binding, RichLog, Static, TextualApp, TextualTextArea]):
             if not suggestions:
                 return
 
-            message.load_text(suggestions[0]["insert"])
+            index = min(max(self.ui.suggestion_index, 0), len(suggestions) - 1)
+            message.load_text(suggestions[index]["insert"])
             try:
                 message.move_cursor(message.document.end)
             except Exception:
                 pass
+            self.refresh_command_palette()
+
+        def action_next_suggestion(self) -> None:
+            suggestions = command_suggestions(str(self.query_one("#message", TextualTextArea).text or ""))
+            if not suggestions:
+                return
+            self.ui.suggestion_index = (self.ui.suggestion_index + 1) % len(suggestions)
+            self.refresh_command_palette()
+
+        def action_previous_suggestion(self) -> None:
+            suggestions = command_suggestions(str(self.query_one("#message", TextualTextArea).text or ""))
+            if not suggestions:
+                return
+            self.ui.suggestion_index = (self.ui.suggestion_index - 1) % len(suggestions)
             self.refresh_command_palette()
 
         def action_page_up(self) -> None:
@@ -257,9 +327,15 @@ if all([Binding, RichLog, Static, TextualApp, TextualTextArea]):
             except Exception:
                 return
             suggestions = command_suggestions(str(message.text or ""))
+            signature = tuple(option["insert"] for option in suggestions)
+            if signature != self.ui.suggestion_signature:
+                self.ui.suggestion_signature = signature
+                self.ui.suggestion_index = 0
+            if suggestions:
+                self.ui.suggestion_index = min(self.ui.suggestion_index, len(suggestions) - 1)
             palette.display = bool(suggestions)
             if suggestions:
-                palette.update(render_command_suggestions(suggestions))
+                palette.update(render_command_suggestions(suggestions, self.ui.suggestion_index))
             else:
                 palette.update("")
 
@@ -313,18 +389,25 @@ class TextualTerminalUi:
         self.output_blocks: list[dict[str, Any]] = []
         self.max_blocks = 1000
         self.follow_output = True
+        self.suggestion_index = 0
+        self.suggestion_signature: tuple[str, ...] = ()
         self.status_text = "ready"
         self.status_kind = "ready"
         self.model_label = model_label()
-        self.directory_label = compact_path(BASE_DIR)
-        self.agent_name = os.getenv("AGENT_NAME", "Quarq Agent").strip() or "Quarq Agent"
+        self.directory_label = compact_path(LAUNCH_CWD)
+        self.agent_name = load_cli_agent_name()
         self.agent_version = os.getenv("QUARQ_AGENT_VERSION", "v0.4.4").strip() or "v0.4.4"
+        self.coding_agent_label = "codex"
+        self.coding_workspace_label = compact_path(LAUNCH_CWD)
+        self.coding_network_label = "net:on"
+        self.refresh_dynamic_labels()
         self.connected_channels: set[str] = set()
         self.default_start_channels = set(load_cli_config().get("startup_channels", []))
         self.output_blocks.append(welcome_block())
         self.app = QuarqTextualApp(self)
 
     def header_renderable(self) -> Panel:
+        self.refresh_dynamic_labels()
         text = Text()
         text.append("›  ", style="#c9d1d9")
         text.append(self.agent_name, style="bold #f8fafc")
@@ -339,7 +422,27 @@ class TextualTerminalUi:
         text.append(channel_summary(self.connected_channels), style="bold #c9d1d9")
         text.append("    startup: ", style="#8b949e")
         text.append(channel_summary(self.default_start_channels), style="#c9d1d9")
+        text.append("\ncoding:    ", style="#8b949e")
+        text.append(self.coding_agent_label, style="bold #a78bfa")
+        text.append(" · ", style="#6b7280")
+        text.append(self.coding_workspace_label, style="#c9d1d9")
+        text.append(" · ", style="#6b7280")
+        text.append(self.coding_network_label, style="#c9d1d9")
         return Panel.fit(text, border_style="#5a606b", padding=(0, 1))
+
+    def refresh_dynamic_labels(self) -> None:
+        self.agent_name = load_cli_agent_name()
+        coding_config = coding_config_summary()
+        self.coding_agent_label = str(
+            coding_config.get("default_provider_label")
+            or coding_config.get("default_provider")
+            or "codex"
+        )
+        self.coding_workspace_label = compact_path(Path(str(coding_config.get("workspace_root") or BASE_DIR)))
+        self.coding_network_label = "net:on" if coding_config.get("network_access", True) else "net:off"
+
+    def refresh_header(self) -> None:
+        self._schedule(self.app.refresh_header)
 
     def set_channel_connected(self, channel_type: str) -> None:
         self.connected_channels.add(normalize_channel_type(channel_type))
@@ -356,6 +459,8 @@ class TextualTerminalUi:
         text.append(self.directory_label, style="bold #9be9a8")
         text.append("    status ", style="#6b7280")
         text.append(self.status_text, style=status_style(self.status_kind))
+        text.append("    copy: drag+Cmd+C", style="#8b949e")
+        text.append("    quit: Ctrl+C", style="#8b949e")
         text.append("    scroll: wheel, PageUp/PageDown, Ctrl+Up/Ctrl+Down", style="#8b949e")
         return text
 
@@ -488,6 +593,7 @@ class TerminalUi:
 
         @key_bindings.add("c-c")
         @key_bindings.add("c-d")
+        @key_bindings.add("c-q")
         def _(event: Any) -> None:
             self.input_queue.put_nowait("/quit")
 
@@ -523,10 +629,6 @@ class TerminalUi:
         def _(event: Any) -> None:
             self.scroll_output(-self.output_page_size())
 
-        @key_bindings.add("c-v", eager=True, is_global=True)
-        def _(event: Any) -> None:
-            self.scroll_output(self.output_page_size())
-
         @key_bindings.add("escape", ">", eager=True, is_global=True)
         def _(event: Any) -> None:
             self.scroll_to_bottom()
@@ -535,7 +637,7 @@ class TerminalUi:
             [
                 Window(
                     FormattedTextControl(self._header_fragments),
-                    height=4,
+                    height=6,
                     style="class:header",
                 ),
                 Window(char="─", height=1, style="class:rule"),
@@ -570,6 +672,7 @@ class TerminalUi:
                 "event.tunnel": "#c084fc",
                 "event.user": "#60a5fa",
                 "event.agent": "#2dd4bf",
+                "event.coding": "#a78bfa",
                 "event.error": "#f87171",
                 "event.event": "#94a3b8",
                 "event.title": "bold #e5e7eb",
@@ -609,11 +712,20 @@ class TerminalUi:
         )
 
     def _header_fragments(self) -> list[tuple[str, str]]:
+        coding_config = coding_config_summary()
+        coding_label = (
+            coding_config.get("default_provider_label")
+            or coding_config.get("default_provider")
+            or "codex"
+        )
+        workspace_label = compact_path(Path(str(coding_config.get("workspace_root") or LAUNCH_CWD)))
         return [
-            ("class:header.title", " Quarq Agent"),
+            ("class:header.title", f" {load_cli_agent_name()}"),
+            ("class:header.dim", f"\n directory {compact_path(LAUNCH_CWD)}"),
             ("class:header.dim", f"\n api {self.api_base}"),
             ("class:header.dim", "\n channels local"),
-            ("class:header.dim", "\n commands /help /status /tools /cloud-tools /connect /wipe /quit"),
+            ("class:header.dim", f"\n coding {coding_label} · {workspace_label}"),
+            ("class:header.dim", "\n commands /help /status /tools /cloud-tools /coding /coding-network /connect /wipe /quit"),
         ]
 
     def _input_label_fragments(self) -> list[tuple[str, str]]:
@@ -627,7 +739,7 @@ class TerminalUi:
             ("class:footer.dim", " status "),
             (f"class:status.{self.status_kind}", self.status_text),
             ("class:footer.dim", f"   transcript {self.scroll_position_text()}"),
-            ("class:footer.dim", "   older: PageUp/Ctrl+Up/Alt+K   newer: PageDown/Ctrl+Down/Alt+J   wheel over transcript "),
+            ("class:footer.dim", "   quit: Ctrl+C   older: PageUp/Ctrl+Up/Alt+K   newer: PageDown/Ctrl+Down/Alt+J "),
         ]
 
     def _output_fragments(self) -> list[tuple[str, str]]:
@@ -816,6 +928,7 @@ class EventLog:
             "telegram": "bright_black",
             "system": "bright_black",
             "job": "yellow",
+            "coding": "magenta",
             "warning": "yellow",
             "error": "red",
         }.get(kind, "white")
@@ -828,10 +941,11 @@ class EventLog:
 
         async with self._lock:
             if self.ui is not None:
+                ui_kind = "coding" if kind == "coding" else event_prefix(kind).strip()
                 self.ui.append(
                     title,
                     message,
-                    kind=event_prefix(kind).strip(),
+                    kind=ui_kind,
                     details=details,
                     replace_key=replace_key,
                 )
@@ -913,6 +1027,105 @@ class QuarqApiClient:
         response = await self.client.get("/api/events", params={"after": after})
         response.raise_for_status()
         return response.json().get("events", [])
+
+    async def list_coding_agents(self) -> dict[str, Any]:
+        response = await self.client.get("/api/coding-agents")
+        response.raise_for_status()
+        return response.json().get("coding_agent", {})
+
+    async def set_coding_agent(self, provider: str) -> dict[str, Any]:
+        response = await self.client.post(
+            "/api/coding-agents/default",
+            json={"provider": provider},
+        )
+        response.raise_for_status()
+        return response.json().get("coding_agent", {})
+
+    async def set_coding_workspace(self, workspace_path: str) -> dict[str, Any]:
+        response = await self.client.post(
+            "/api/coding-agents/workspace",
+            json={"workspace_path": workspace_path},
+        )
+        response.raise_for_status()
+        return response.json().get("coding_agent", {})
+
+    async def set_coding_network(self, enabled: bool) -> dict[str, Any]:
+        response = await self.client.post(
+            "/api/coding-agents/network",
+            json={"enabled": bool(enabled)},
+        )
+        response.raise_for_status()
+        return response.json().get("coding_agent", {})
+
+    async def list_coding_tasks(self, status: str = "active") -> list[dict[str, Any]]:
+        response = await self.client.get("/api/coding-tasks", params={"status": status})
+        response.raise_for_status()
+        return response.json().get("tasks", [])
+
+    async def clear_coding_task_history(self) -> dict[str, Any]:
+        response = await self.client.delete("/api/coding-tasks")
+        response.raise_for_status()
+        return response.json()
+
+    async def start_coding_task(self, prompt: str) -> dict[str, Any]:
+        response = await self.client.post("/api/coding-tasks", json={"prompt": prompt})
+        response.raise_for_status()
+        return response.json()
+
+    async def get_coding_task(self, task_id: str) -> dict[str, Any]:
+        response = await self.client.get(f"/api/coding-tasks/{task_id}")
+        response.raise_for_status()
+        return response.json().get("task", {})
+
+    async def delete_coding_task(self, task_id: str) -> dict[str, Any]:
+        response = await self.client.delete(f"/api/coding-tasks/{task_id}")
+        response.raise_for_status()
+        return response.json()
+
+    async def get_coding_logs(self, task_id: str, limit: int = 50) -> list[dict[str, Any]]:
+        response = await self.client.get(
+            f"/api/coding-tasks/{task_id}/logs",
+            params={"limit": limit},
+        )
+        response.raise_for_status()
+        return response.json().get("logs", [])
+
+    async def reply_to_coding_task(self, task_id: str, message: str) -> dict[str, Any]:
+        response = await self.client.post(
+            f"/api/coding-tasks/{task_id}/reply",
+            json={"message": message},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def reply_to_latest_coding_task(self, message: str) -> dict[str, Any]:
+        response = await self.client.post(
+            "/api/coding-tasks/latest/reply",
+            json={"message": message},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def cancel_coding_task(self, task_id: str) -> dict[str, Any]:
+        response = await self.client.post(f"/api/coding-tasks/{task_id}/cancel")
+        response.raise_for_status()
+        return response.json()
+
+    async def set_coding_task_network(self, task_id: str, enabled: bool) -> dict[str, Any]:
+        response = await self.client.post(
+            f"/api/coding-tasks/{task_id}/network",
+            json={"enabled": bool(enabled)},
+        )
+        response.raise_for_status()
+        return response.json()
+
+    async def subscribe_coding_tasks_to_channel(self, channel_type: str) -> dict[str, Any]:
+        response = await self.client.post(
+            "/api/coding-tasks/subscribe-channel",
+            json={"channel_type": channel_type},
+        )
+        response.raise_for_status()
+        return response.json()
 
 
 class CloudflareTunnel:
@@ -1037,7 +1250,27 @@ class ChannelManager:
             self.ui.set_channel_connected("telegram")
             self.ui.set_status("telegram connected", "ready")
 
+        await self.subscribe_coding_updates("telegram")
+
         return "Telegram channel connected."
+
+    async def subscribe_coding_updates(self, channel_type: str) -> None:
+        try:
+            async with httpx.AsyncClient(base_url=self.api_base, timeout=15) as client:
+                response = await client.post(
+                    "/api/coding-tasks/subscribe-channel",
+                    json={"channel_type": channel_type},
+                )
+                response.raise_for_status()
+                result = response.json()
+        except Exception as exc:
+            await self.events.emit("Coding notifications", f"Could not subscribe {channel_type}: {exc}", "yellow")
+            return
+
+        message = str(result.get("message") or "").strip()
+        task_count = int(result.get("task_count") or 0)
+        style = "green" if task_count else "yellow"
+        await self.events.emit("Coding notifications", message, style)
 
     async def ensure_tunnel(self) -> str:
         if self.tunnel_url:
@@ -1152,6 +1385,12 @@ def format_event_details(event: dict[str, Any]) -> str:
     parts = []
     if data.get("job_id"):
         parts.append(f"job={str(data['job_id'])[:8]}")
+    if data.get("task_id"):
+        parts.append(f"task={str(data['task_id'])[:12]}")
+    if data.get("provider"):
+        parts.append(f"provider={data['provider']}")
+    if data.get("status"):
+        parts.append(f"status={data['status']}")
     if data.get("channel"):
         parts.append(f"channel={data['channel']}")
     if data.get("stage"):
@@ -1192,12 +1431,16 @@ def event_prefix(kind: str) -> str:
         return "user "
     if kind == "job":
         return "job   "
+    if kind == "coding":
+        return "code  "
     return "event "
 
 
 def progress_replace_key(event: dict[str, Any]) -> str | None:
     kind = str(event.get("kind") or "").lower()
     data = event.get("data") or {}
+    if data.get("replace_key"):
+        return str(data["replace_key"])
     job_id = data.get("job_id")
     if kind == "job" and job_id:
         return f"job:{job_id}:progress"
@@ -1213,7 +1456,8 @@ def normalize_event_kind(kind: str) -> str:
         "system": "event",
         "telegram": "event",
         "job": "notice",
-    }.get(cleaned, cleaned if cleaned in {"agent", "error", "event", "notice", "ready", "tunnel", "user"} else "event")
+        "coding": "coding",
+    }.get(cleaned, cleaned if cleaned in {"agent", "coding", "error", "event", "notice", "ready", "tunnel", "user"} else "event")
 
 
 def normalize_status_kind(kind: str) -> str:
@@ -1231,6 +1475,7 @@ def event_kind_from_style(style: str) -> str:
         "yellow": "notice",
         "red": "error",
         "magenta": "tunnel",
+        "bright_magenta": "coding",
     }.get(style, "event")
 
 
@@ -1246,6 +1491,7 @@ def status_style(kind: str) -> str:
 def event_style(kind: str) -> str:
     return {
         "agent": "bold #2dd4bf",
+        "coding": "bold #a78bfa",
         "error": "bold #f87171",
         "event": "bold #94a3b8",
         "notice": "bold #fbbf24",
@@ -1268,6 +1514,13 @@ def model_label() -> str:
         or ""
     ).strip()
     return f"{model} {effort}".strip()
+
+
+def load_cli_agent_name() -> str:
+    try:
+        return str(load_agent_config().get("agent_name") or "Argus").strip() or "Argus"
+    except Exception:
+        return os.getenv("AGENT_NAME", "Argus").strip() or "Argus"
 
 
 def normalize_channel_type(channel_type: str) -> str:
@@ -1395,6 +1648,81 @@ COMMAND_OPTIONS = [
         "description": "disable a cloud tool",
     },
     {
+        "name": "/coding",
+        "insert": "/coding ",
+        "description": "start a new coding task or list recent tasks",
+    },
+    {
+        "name": "/coding-new",
+        "insert": "/coding-new ",
+        "description": "start a fresh coding session",
+    },
+    {
+        "name": "/coding-continue",
+        "insert": "/coding-continue ",
+        "description": "continue the latest coding session",
+    },
+    {
+        "name": "/coding-tasks",
+        "insert": "/coding-tasks",
+        "description": "list recent coding task ids",
+    },
+    {
+        "name": "/coding-agents",
+        "insert": "/coding-agents",
+        "description": "list coding agents and current default",
+    },
+    {
+        "name": "/coding-use",
+        "insert": "/coding-use codex",
+        "description": "select default coding agent",
+    },
+    {
+        "name": "/coding-workspace",
+        "insert": "/coding-workspace ",
+        "description": "set default coding workspace",
+    },
+    {
+        "name": "/coding-network",
+        "insert": "/coding-network ",
+        "description": "show or set coding network access",
+    },
+    {
+        "name": "/coding-allow-network",
+        "insert": "/coding-allow-network ",
+        "description": "allow network access for a coding task",
+    },
+    {
+        "name": "/coding-status",
+        "insert": "/coding-status ",
+        "description": "show coding task status",
+    },
+    {
+        "name": "/coding-log",
+        "insert": "/coding-log ",
+        "description": "show recent coding task logs",
+    },
+    {
+        "name": "/coding-reply",
+        "insert": "/coding-reply ",
+        "description": "reply to a coding task",
+    },
+    {
+        "name": "/coding-cancel",
+        "insert": "/coding-cancel ",
+        "description": "cancel a coding task",
+    },
+    {
+        "name": "/coding-delete",
+        "insert": "/coding-delete ",
+        "description": "delete a completed coding task",
+    },
+    {
+        "name": "/coding-clear",
+        "insert": "/coding-clear",
+        "description": "delete completed coding task history",
+    },
+    {
         "name": "/connect",
         "insert": "/connect telegram ",
         "description": "connect a channel on demand",
@@ -1416,14 +1744,101 @@ COMMAND_OPTIONS = [
     },
 ]
 
+TASK_ID_COMMANDS = {
+    "/coding-status": {"needs_message": False, "description": "show this task status"},
+    "/coding-log": {"needs_message": False, "description": "show this task log"},
+    "/coding-reply": {"needs_message": True, "description": "reply to this task"},
+    "/coding-cancel": {"needs_message": False, "description": "cancel this task"},
+    "/coding-delete": {"needs_message": False, "description": "delete this task"},
+    "/coding-rm": {"needs_message": False, "description": "delete this task"},
+    "/coding-continue": {"needs_message": True, "description": "continue this task"},
+    "/coding-network": {"needs_message": True, "description": "set this task network access"},
+    "/coding-allow-network": {"needs_message": False, "description": "allow network for this task"},
+}
+
+
+def recent_coding_task_options(command: str, partial: str = "") -> list[dict[str, str]]:
+    partial = str(partial or "").strip().lower()
+    try:
+        tasks = CodingTaskStore(load_settings().task_root).list_tasks(limit=20)
+    except Exception:
+        return []
+
+    options = []
+    for task in tasks:
+        task_id = str(task.get("id") or "")
+        if not task_id:
+            continue
+        prompt = str(task.get("prompt") or "").splitlines()[0].strip()
+        haystack = " ".join(
+            [
+                task_id,
+                str(task.get("status") or ""),
+                prompt,
+            ]
+        ).lower()
+        if partial and partial not in haystack:
+            continue
+
+        needs_message = bool(TASK_ID_COMMANDS.get(command, {}).get("needs_message"))
+        insert = f"{command} {task_id}{' ' if needs_message else ''}"
+        short_prompt = prompt[:64] + ("..." if len(prompt) > 64 else "")
+        options.append(
+            {
+                "name": task_id,
+                "insert": insert,
+                "description": (
+                    f"[{task.get('status')}] {TASK_ID_COMMANDS[command]['description']}"
+                    + (f" - {short_prompt}" if short_prompt else "")
+                ),
+                "kind": "task",
+            }
+        )
+
+    return options[:8]
+
 
 def command_suggestions(text: str) -> list[dict[str, str]]:
     lines = str(text or "").splitlines()
-    first_line = lines[0].strip() if lines else ""
+    raw_first_line = lines[0] if lines else ""
+    first_line = raw_first_line.strip()
     if not first_line:
         return []
 
     if first_line.startswith("/"):
+        command, separator, rest = raw_first_line.partition(" ")
+        command = command.strip().lower()
+        if command in TASK_ID_COMMANDS and separator:
+            rest_parts = rest.strip().split(maxsplit=1)
+            if len(rest_parts) > 1:
+                return []
+            first_arg = rest_parts[0] if rest_parts else ""
+            if command == "/coding-network" and not first_arg.startswith("code_"):
+                network_options = [
+                    {
+                        "name": "on",
+                        "insert": "/coding-network on",
+                        "description": "allow network for new coding tasks",
+                        "kind": "command",
+                    },
+                    {
+                        "name": "off",
+                        "insert": "/coding-network off",
+                        "description": "block network for new coding tasks",
+                        "kind": "command",
+                    },
+                ]
+                if first_arg:
+                    return [
+                        option
+                        for option in network_options
+                        if option["name"].startswith(first_arg.lower())
+                    ]
+                return network_options + recent_coding_task_options(command, first_arg)[:6]
+            if not first_arg or first_arg.startswith("code_"):
+                return recent_coding_task_options(command, first_arg)
+            return []
+
         query = first_line.lower()
         return [
             option
@@ -1445,15 +1860,20 @@ def command_suggestions(text: str) -> list[dict[str, str]]:
     return []
 
 
-def render_command_suggestions(suggestions: list[dict[str, str]]) -> Text:
+def render_command_suggestions(suggestions: list[dict[str, str]], selected_index: int = 0) -> Text:
     text = Text()
     for index, option in enumerate(suggestions[:8]):
         if index:
             text.append("\n")
-        text.append(option["name"], style="bold #22d3ee")
+        selected = index == selected_index
+        name_style = "bold #111318 on #60a5fa" if selected else "bold #22d3ee"
+        desc_style = "#111318 on #60a5fa" if selected else "#8b949e"
+        prefix = "› " if selected else "  "
+        text.append(prefix, style=name_style if selected else "#6b7280")
+        text.append(option["name"], style=name_style)
         text.append("  ")
-        text.append(option["description"], style="#8b949e")
-    text.append("\nTab to complete the first command", style="#6b7280")
+        text.append(option["description"], style=desc_style)
+    text.append("\nCtrl+N/P to choose · Tab to insert", style="#6b7280")
     return text
 
 
@@ -1470,6 +1890,22 @@ def local_help_text(intro: bool = False) -> str:
             "- `/cloud-tools` - list cloud tools available to enable",
             "- `/add-tool <tool>` - enable a cloud tool",
             "- `/remove-tool <tool>` - disable a cloud tool",
+            "- `/coding <task>` - start a new coding task",
+            "- `/coding-new <task>` - start a fresh coding session",
+            "- `/coding-continue <message>` - continue the latest coding session",
+            "- `/coding` or `/coding-tasks` - list recent coding task ids",
+            "- `/coding-agents` - list coding agents and current default",
+            "- `/coding-use <provider>` - select the default coding agent",
+            "- `/coding-workspace <path>` - set the default coding workspace",
+            "- `/coding-network [on|off]` - show or set default coding network access",
+            "- `/coding-network <id> on|off` - set network access for a coding task",
+            "- `/coding-allow-network <id>` - allow network access for a coding task",
+            "- `/coding-status <id>` - show coding task status",
+            "- `/coding-log <id>` - show recent coding task logs",
+            "- `/coding-reply <id> <message>` - reply to a coding task",
+            "- `/coding-cancel <id>` - cancel a coding task",
+            "- `/coding-delete <id>` - delete a completed/failed/cancelled coding task",
+            "- `/coding-clear` - delete all completed/failed/cancelled coding task history",
             "- `/connect telegram` - start a channel connection on demand",
             "- `set-default start-channel telegram` - auto-connect a channel on future startup",
             "- `set-default start-channel none` - clear startup channel connections",
@@ -1480,6 +1916,95 @@ def local_help_text(intro: bool = False) -> str:
             "Expand tools with `/cloud-tools`, then `/add-tool <tool>`.",
         ]
     )
+    return "\n".join(rows)
+
+
+def parse_on_off(value: str) -> bool | None:
+    lowered = str(value or "").strip().lower()
+    if lowered in {"on", "true", "1", "yes", "enable", "enabled", "allow", "allowed"}:
+        return True
+    if lowered in {"off", "false", "0", "no", "disable", "disabled", "block", "blocked"}:
+        return False
+    return None
+
+
+def format_coding_task(task: dict[str, Any]) -> str:
+    if not task:
+        return "Coding task not found."
+    rows = [
+        f"Task id: {task.get('id')}",
+        f"Status: {task.get('status')}",
+        f"Provider: {task.get('provider')}",
+        f"Workspace: {task.get('workspace_path')}",
+        f"Network: {'on' if task.get('network_access', True) else 'off'}",
+    ]
+    if task.get("approval_request"):
+        rows.append("Approval needed: yes")
+    if task.get("provider_thread_id"):
+        rows.append("Codex session: connected")
+    if task.get("restart_provider_session"):
+        rows.append("Codex session: will restart on next continuation")
+    if task.get("current_activity"):
+        rows.append(f"Current activity: {task.get('current_activity')}")
+    if task.get("changed_files"):
+        rows.append("Changed files:\n" + "\n".join(f"- {path}" for path in task["changed_files"]))
+    if task.get("error"):
+        rows.append(f"Error: {task.get('error')}")
+    if task.get("result_summary"):
+        rows.append(f"Summary: {task.get('result_summary')}")
+    return "\n".join(rows)
+
+
+def format_coding_agent_config(config: dict[str, Any]) -> str:
+    providers = config.get("providers") or []
+    rows = [
+        f"Default coding agent: {config.get('default_provider_label')} (`{config.get('default_provider')}`)",
+        f"Workspace: {config.get('workspace_root')}",
+        f"Approval policy: {config.get('approval_policy')}",
+        f"Network access: {'on' if config.get('network_access') else 'off'}",
+        f"Active tasks: {config.get('active_tasks', 0)}",
+        "",
+        "Available coding agents:",
+    ]
+    rows.extend(
+        f"- {item['label']} (`{item['slug']}`) [{item['status']}] - {item['description']}"
+        for item in providers
+    )
+    rows.append("")
+    rows.append("Use `/coding-use codex`, `/coding-workspace <path>`, and `/coding-network on|off` to change defaults.")
+    return "\n".join(rows)
+
+
+def format_coding_tasks(tasks: list[dict[str, Any]], active_only: bool = True) -> str:
+    if not tasks:
+        return (
+            "No active coding tasks. Start one with `/coding <task>`."
+            if active_only
+            else "No coding tasks yet. Start one with `/coding <task>`."
+        )
+    rows = ["Active coding tasks:" if active_only else "Recent coding tasks:"]
+    for task in tasks[:20]:
+        prompt = str(task.get("prompt") or "").splitlines()[0][:90]
+        marker = " needs input" if task.get("approval_request") or task.get("status") == "waiting_user" else ""
+        network = "on" if task.get("network_access", True) else "off"
+        rows.append(f"- {task.get('id')} [{task.get('status')}] net={network}{marker} {prompt}")
+    rows.append("")
+    rows.append("Continue latest with `/coding-continue <message>`. Start fresh with `/coding-new <task>`.")
+    rows.append("Inspect with `/coding-status <id>` or `/coding-log <id>`. Reply to a specific task with `/coding-reply <id> <message>`.")
+    rows.append("Delete history with `/coding-delete <id>` or `/coding-clear`.")
+    rows.append("For id commands, type the command plus a space, choose a task with Ctrl+N/P, then press Tab.")
+    return "\n".join(rows)
+
+
+def format_coding_logs(logs: list[dict[str, Any]]) -> str:
+    if not logs:
+        return "No coding task logs found."
+    rows = []
+    for event in logs:
+        rows.append(
+            f"- {event.get('time', '')} {event.get('title', 'Log')}: "
+            f"{str(event.get('message') or '').strip()}"
+        )
     return "\n".join(rows)
 
 
@@ -1728,10 +2253,10 @@ def token_pair(metrics: dict[str, Any], prefix: str) -> str:
 
 def print_header(console: Console, api_base: str) -> None:
     console.clear()
-    console.print(Text("Quarq Agent", style="bold white"))
+    console.print(Text(load_cli_agent_name(), style="bold white"))
     console.print(
         Text(
-            f"api {api_base}  commands /help /status /tools /cloud-tools /connect /wipe /quit",
+            f"api {api_base}  commands /help /status /tools /cloud-tools /coding /coding-network /connect /wipe /quit",
             style="dim",
         )
     )
@@ -1748,6 +2273,7 @@ def build_terminal_ui(api_base: str) -> TextualTerminalUi | None:
 
 def start_api_server(host: str, port: int, log_level: str) -> subprocess.Popen:
     os.environ.setdefault("USER_ID", "local_cli_user")
+    os.environ.setdefault("QUARQ_LAUNCH_CWD", str(LAUNCH_CWD))
 
     command = [
         sys.executable,
@@ -1874,6 +2400,218 @@ async def cli_input_loop(
             await events.emit("Control status", "\n".join(part for part in details if part), "green")
             continue
 
+        if command in {"/coding", "/coding-new", "/coding-tasks"}:
+            task_prompt = prompt.partition(" ")[2].strip()
+            try:
+                if not task_prompt:
+                    tasks = await api.list_coding_tasks(status="all")
+                    await events.emit("Coding tasks", format_coding_tasks(tasks, active_only=False), "bright_magenta")
+                    continue
+                if command == "/coding-tasks":
+                    tasks = await api.list_coding_tasks(status="all")
+                    await events.emit("Coding tasks", format_coding_tasks(tasks, active_only=False), "bright_magenta")
+                    continue
+                if ui is not None:
+                    ui.set_status("starting coding task...", "busy")
+                result = await api.start_coding_task(task_prompt)
+                task = result.get("task") or {}
+                await events.emit("Coding task", format_coding_task(task), "bright_magenta")
+            except Exception as exc:
+                if ui is not None:
+                    ui.set_status("coding command failed", "error")
+                await events.emit("Coding command failed", str(exc), "red")
+            continue
+
+        if command == "/coding-continue":
+            message = prompt.partition(" ")[2].strip()
+            if not message:
+                await events.emit(
+                    "Coding continue",
+                    "Usage: `/coding-continue <message>`\nOr: `/coding-continue <task_id> <message>`",
+                    "yellow",
+                )
+                continue
+            task_id = ""
+            if words[1:2] and words[1].startswith("code_") and len(words) >= 3:
+                task_id = words[1]
+                message = prompt.split(None, 2)[2]
+            try:
+                if ui is not None:
+                    ui.set_status("continuing coding task...", "busy")
+                if task_id:
+                    result = await api.reply_to_coding_task(task_id, message)
+                else:
+                    result = await api.reply_to_latest_coding_task(message)
+                await events.emit("Coding continue", format_coding_task(result.get("task") or {}), "bright_magenta")
+            except Exception as exc:
+                if ui is not None:
+                    ui.set_status("coding continue failed", "error")
+                await events.emit("Coding continue failed", str(exc), "red")
+            continue
+
+        if command in {"/coding-agents", "/coding-config"}:
+            try:
+                config = await api.list_coding_agents()
+                await events.emit("Coding agents", format_coding_agent_config(config), "bright_magenta")
+                if ui is not None and hasattr(ui, "refresh_header"):
+                    ui.refresh_header()
+            except Exception as exc:
+                await events.emit("Coding agents failed", str(exc), "red")
+            continue
+
+        if command == "/coding-use":
+            provider = words[1] if len(words) > 1 else ""
+            if not provider:
+                await events.emit("Coding agent", "Usage: `/coding-use <provider>`\nExample: `/coding-use codex`", "yellow")
+                continue
+            try:
+                config = await api.set_coding_agent(provider)
+                await events.emit("Coding agent selected", format_coding_agent_config(config), "bright_magenta")
+                if ui is not None and hasattr(ui, "refresh_header"):
+                    ui.refresh_header()
+            except Exception as exc:
+                await events.emit("Coding agent select failed", str(exc), "red")
+            continue
+
+        if command == "/coding-workspace":
+            workspace_path = prompt.partition(" ")[2].strip()
+            if not workspace_path:
+                await events.emit("Coding workspace", "Usage: `/coding-workspace <path>`", "yellow")
+                continue
+            try:
+                config = await api.set_coding_workspace(workspace_path)
+                await events.emit("Coding workspace updated", format_coding_agent_config(config), "bright_magenta")
+                if ui is not None and hasattr(ui, "refresh_header"):
+                    ui.refresh_header()
+            except Exception as exc:
+                await events.emit("Coding workspace failed", str(exc), "red")
+            continue
+
+        if command == "/coding-network":
+            args = words[1:]
+            try:
+                if not args:
+                    config = await api.list_coding_agents()
+                    await events.emit("Coding network", format_coding_agent_config(config), "bright_magenta")
+                    continue
+                if args[0].startswith("code_"):
+                    if len(args) < 2:
+                        await events.emit("Coding network", "Usage: `/coding-network <task_id> on|off`", "yellow")
+                        continue
+                    enabled = parse_on_off(args[1])
+                    if enabled is None:
+                        await events.emit("Coding network", "Usage: `/coding-network <task_id> on|off`", "yellow")
+                        continue
+                    result = await api.set_coding_task_network(args[0], enabled)
+                    await events.emit("Coding network updated", format_coding_task(result.get("task") or {}), "bright_magenta")
+                    continue
+                enabled = parse_on_off(args[0])
+                if enabled is None:
+                    await events.emit(
+                        "Coding network",
+                        "Usage: `/coding-network on|off`\nOr: `/coding-network <task_id> on|off`",
+                        "yellow",
+                    )
+                    continue
+                config = await api.set_coding_network(enabled)
+                await events.emit("Coding network updated", format_coding_agent_config(config), "bright_magenta")
+                if ui is not None and hasattr(ui, "refresh_header"):
+                    ui.refresh_header()
+            except Exception as exc:
+                await events.emit("Coding network failed", str(exc), "red")
+            continue
+
+        if command == "/coding-allow-network":
+            if len(words) < 2:
+                await events.emit("Coding network", "Usage: `/coding-allow-network <task_id>`", "yellow")
+                continue
+            try:
+                result = await api.set_coding_task_network(words[1], True)
+                await events.emit("Coding network updated", format_coding_task(result.get("task") or {}), "bright_magenta")
+            except Exception as exc:
+                await events.emit("Coding network failed", str(exc), "red")
+            continue
+
+        if command == "/coding-status":
+            if len(words) < 2:
+                await events.emit("Coding status", "Usage: `/coding-status <task_id>`", "yellow")
+                continue
+            try:
+                task = await api.get_coding_task(words[1])
+                await events.emit("Coding status", format_coding_task(task), "bright_magenta")
+            except Exception as exc:
+                await events.emit("Coding status failed", str(exc), "red")
+            continue
+
+        if command == "/coding-log":
+            if len(words) < 2:
+                await events.emit("Coding log", "Usage: `/coding-log <task_id>`", "yellow")
+                continue
+            try:
+                logs = await api.get_coding_logs(words[1], limit=50)
+                await events.emit("Coding log", format_coding_logs(logs), "bright_magenta")
+            except Exception as exc:
+                await events.emit("Coding log failed", str(exc), "red")
+            continue
+
+        if command == "/coding-reply":
+            if len(words) < 3:
+                await events.emit(
+                    "Coding reply",
+                    "Usage: `/coding-reply <task_id> <message>`",
+                    "yellow",
+                )
+                continue
+            task_id = words[1]
+            message = prompt.split(None, 2)[2]
+            try:
+                result = await api.reply_to_coding_task(task_id, message)
+                await events.emit("Coding reply", format_coding_task(result.get("task") or {}), "bright_magenta")
+            except Exception as exc:
+                await events.emit("Coding reply failed", str(exc), "red")
+            continue
+
+        if command == "/coding-cancel":
+            if len(words) < 2:
+                await events.emit("Coding cancel", "Usage: `/coding-cancel <task_id>`", "yellow")
+                continue
+            try:
+                result = await api.cancel_coding_task(words[1])
+                await events.emit("Coding cancelled", format_coding_task(result.get("task") or {}), "bright_magenta")
+            except Exception as exc:
+                await events.emit("Coding cancel failed", str(exc), "red")
+            continue
+
+        if command in {"/coding-delete", "/coding-rm"}:
+            if len(words) < 2:
+                await events.emit("Coding delete", "Usage: `/coding-delete <task_id>`", "yellow")
+                continue
+            try:
+                result = await api.delete_coding_task(words[1])
+                await events.emit(
+                    "Coding task deleted",
+                    result.get("message") or f"Deleted coding task {words[1]}.",
+                    "bright_magenta",
+                )
+            except Exception as exc:
+                await events.emit("Coding delete failed", str(exc), "red")
+            continue
+
+        if command in {"/coding-clear", "/coding-clear-history"}:
+            try:
+                result = await api.clear_coding_task_history()
+                await events.emit(
+                    "Coding history cleared",
+                    (
+                        f"Deleted {result.get('deleted', 0)} coding task(s).\n"
+                        f"Preserved {result.get('preserved', 0)} active task(s)."
+                    ),
+                    "bright_magenta",
+                )
+            except Exception as exc:
+                await events.emit("Coding clear failed", str(exc), "red")
+            continue
+
         if command == "/connect":
             channel = words[1] if len(words) > 1 else ""
             try:
@@ -1971,7 +2709,16 @@ def format_status(data: dict[str, Any]) -> str:
         "telegram_allowed_users_configured",
         "telegram_configured",
         "telegram_webhook_path",
+        "coding_agent",
     }
+    coding_agent = data.get("coding_agent") or {}
+    if coding_agent:
+        rows.append(
+            f"coding_agent: {coding_agent.get('default_provider_label')} "
+            f"(`{coding_agent.get('default_provider')}`)"
+        )
+        rows.append(f"coding_workspace: {coding_agent.get('workspace_root')}")
+        rows.append(f"coding_network: {'on' if coding_agent.get('network_access') else 'off'}")
     for key, value in sorted(data.items()):
         if key in skipped_keys:
             continue
@@ -1987,6 +2734,18 @@ def update_status_from_api_event(ui: TerminalUi, event: dict[str, Any]) -> None:
 
     if title in {"chat request", "telegram inbound"} or (kind == "request" and channel):
         ui.set_status("waiting for response...", "busy")
+    elif kind == "coding":
+        status = str(data.get("status") or "").strip()
+        if status == "completed":
+            ui.set_status("coding complete", "ready")
+        elif status == "failed":
+            ui.set_status("coding failed", "error")
+        elif status == "waiting_user":
+            ui.set_status("coding waiting for reply", "notice")
+        else:
+            ui.set_status("coding...", "busy")
+        if data.get("status") == "configured" and hasattr(ui, "refresh_header"):
+            ui.refresh_header()
     elif kind == "job":
         tool_name = str(data.get("tool_name") or "").strip()
         message = str(event.get("message") or "").strip()
@@ -1998,6 +2757,8 @@ def update_status_from_api_event(ui: TerminalUi, event: dict[str, Any]) -> None:
             ui.set_status("working...", "busy")
     elif title in {"chat response", "telegram response", "command handled"}:
         ui.set_status("ready", "ready")
+        if hasattr(ui, "refresh_header"):
+            ui.refresh_header()
     elif "error" in title or kind == "error":
         ui.set_status("error - check transcript", "error")
 

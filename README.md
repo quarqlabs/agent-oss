@@ -15,6 +15,7 @@ Benchmark cost warning: a full 500-question LongMemEval-S run with the current m
 ## Contents
 
 - [Why Quarq Exists](#why-quarq-exists)
+- [What's New In v0.4.4](#whats-new-in-v044)
 - [What Makes It Different](#what-makes-it-different)
 - [Highlights](#highlights)
 - [Architecture](#architecture)
@@ -27,6 +28,7 @@ Benchmark cost warning: a full 500-question LongMemEval-S run with the current m
 - [Self-Correcting Retrieval](#self-correcting-retrieval)
 - [Learning Pipeline](#learning-pipeline)
 - [Tool System](#tool-system)
+- [Coding Agent Delegation](#coding-agent-delegation)
 - [Benchmarks](#benchmarks)
 - [Benchmark Cost Planning](#benchmark-cost-planning)
 - [Current Local Metrics](#current-local-metrics)
@@ -65,6 +67,20 @@ Quarq combines:
 
 The result is an agent that behaves less like a stateless chatbot and more like a disciplined cognitive system.
 
+## What's New In v0.4.4
+
+This release turns Quarq into a much more complete local agent runtime:
+
+- **Argus control console:** a Codex-style CLI with a fixed bottom input row, scrollable transcript, Markdown rendering, command palette, multiline compose, live status header, global `argus` launcher, and one-command setup scripts for macOS/Linux and Windows.
+- **API job queue:** chat requests now create jobs, emit status events while work is happening, and return final responses when the job completes. The CLI polls events instead of blocking silently.
+- **On-demand channels:** Telegram connects only when requested with `/connect telegram`, supports startup defaults, shows typing indicators, retries registration cleanly, and can receive coding-task progress after connecting mid-run.
+- **Durable channel context:** CLI and Telegram chat history are stored locally, command responses are saved into history, and only the latest four user/assistant pairs are passed into each agent request.
+- **Multimodal input storage:** incoming Telegram/API files are stored under local channel state, indexed, and passed into the agent with best-effort text extraction or AI-assisted image/audio/PDF understanding.
+- **Local identity management:** agent name, personality, use cases, and custom prompt can be updated through a local identity config file instead of Supabase-backed identity tools.
+- **Cloud-tool expansion:** external SaaS actions are routed through a single cloud-tool skill with configurable toolkits, user-facing `/tools`, `/which-tool`, `/cloud-tools`, `/add-tool`, and `/remove-tool` commands.
+- **Coding-agent delegation:** Quarq can delegate software work to Codex, persist tasks and logs, continue or start fresh sessions, delete task history, configure workspace/provider/network mode, and stream progress into CLI and subscribed Telegram chats.
+- **Coding safety and UX:** coding tasks use shallow retrieval, portable workspace defaults, task-id suggestions, network-on defaults for package registries, safe restart when Codex sandbox settings change, and progress-file polling for long training/build tasks.
+
 ## What Makes It Different
 
 Quarq is not a wrapper around a vector database. It is a full memory reasoning loop.
@@ -98,6 +114,7 @@ Quarq directly attacks those failure modes with retrieval decomposition, evidenc
 - Local control console: starts the FastAPI worker, shows structured request/job/channel events, supports multiline input, command completion, and a scrollable transcript.
 - On-demand channel connections: channels are connected only when requested, starting with Telegram through a temporary Cloudflare tunnel and automatic webhook registration.
 - Local identity config: agent name, personality, use cases, and custom directives can be updated by tool call into a local JSON file instead of Supabase.
+- Coding-agent delegation: Quarq can start durable Codex tasks, stream coding progress into the CLI, let the user reply, and persist task logs locally.
 
 ## Architecture
 
@@ -235,6 +252,10 @@ local_memory/
       chat_history.json
       attachments_index.json
       attachments/
+    coding_agents/
+      tasks.json
+      logs/
+        <task_id>.jsonl
 ```
 
 `AGENT_ID` determines which memory folder is used. Reusing the same `AGENT_ID` reuses the same memory. Changing `AGENT_ID` gives you a clean isolated agent profile.
@@ -256,6 +277,10 @@ behaves like a scanned/image document, Quarq can render the first few pages with
 `PyMuPDF` and send them through the configured multimodal image model for
 vision OCR. Make sure `pip install -r requirements.txt` has been run in the same
 virtual environment that starts `main.py` or `agent_cli.py`.
+
+Coding-agent task state is durable too. Each delegated coding task is stored in
+`coding_agents/tasks.json`, and every progress/update/approval/completion event
+is appended to that task's JSONL log under `coding_agents/logs/`.
 
 Each semantic and episodic memory record includes:
 
@@ -429,6 +454,7 @@ Current included skills:
 
 - agent identity management
 - cloud app actions
+- coding-agent delegation
 
 Tool execution uses a ReAct loop with a maximum of 5 iterations. If the loop reaches the limit, the model is forced to stop calling tools and produce a final text response.
 
@@ -448,6 +474,125 @@ Enabled cloud tools are stored in `local_memory/<AGENT_ID>/agent_tools.json`, wi
 `/cloud-tools` fetches the available cloud-tool catalog when credentials are
 configured, then falls back to the small local catalog if the remote catalog is
 unavailable.
+
+Native coding-agent commands:
+
+```text
+/coding implement the failing auth test
+/coding-new start a fresh implementation pass for the dashboard
+/coding-continue now add tests for the same change
+/coding-continue <task_id> use this exact older session
+/coding or /coding-tasks
+/coding-agents
+/coding-use codex
+/coding-workspace /absolute/path/to/repo
+/coding-network on
+/coding-network off
+/coding-network <task_id> on
+/coding-allow-network <task_id>
+/coding-status <task_id>
+/coding-log <task_id>
+/coding-reply <task_id> approved, continue
+/coding-cancel <task_id>
+/coding-delete <task_id>
+/coding-clear
+```
+
+The coding-agent skill is provider-neutral. V1 uses Codex; future providers can
+plug into the same task store, event feed, and API command surface.
+The current default provider, workspace, and network mode are visible in the CLI
+header.
+
+## Coding Agent Delegation
+
+Quarq delegates coding work instead of editing files directly in the chat flow.
+The first provider is Codex, launched through Codex CLI's MCP server with the
+default command:
+
+```bash
+codex mcp-server
+```
+
+Delegated tasks are durable:
+
+- `tasks.json` stores task status, provider, workspace, network mode, prompt, changed files, errors, and summary.
+- `logs/<task_id>.jsonl` stores every progress event.
+- `.quarq/coding_progress/<task_id>.jsonl` inside the coding workspace is a provider-side progress file Quarq asks Codex to update during long tasks. Quarq polls it and streams those progress rows to the CLI and subscribed channels.
+- `config.json` stores local overrides for default provider, workspace, and coding-network default when changed from CLI/API/tool calls.
+- The CLI subscribes to `/api/events` and renders coding events in the transcript.
+- The user can reply to a waiting task with `/coding-reply <task_id> <message>`.
+- The user can continue the most recent completed Codex session with `/coding-continue <message>`.
+- The user can start a deliberately fresh Codex session with `/coding-new <task>`.
+- The user can delete a completed/failed/cancelled task with `/coding-delete <task_id>`, or clear all non-active task history with `/coding-clear`.
+
+Provider/workspace control:
+
+- `.env` provides startup defaults such as `CODING_AGENT_DEFAULT_PROVIDER` and `CODEX_WORKSPACE_ROOT`.
+- `CODEX_WORKSPACE_ROOT=.` is portable and resolves to the directory where the user launched the Quarq CLI/API.
+- `/coding-agents` lists supported providers and shows the current default.
+- `/coding-use <provider>` selects the default provider. V1 supports `codex`; `claude_code` and `cursor` are reserved provider slots for later.
+- `/coding-workspace <path>` sets the default workspace without editing `.env`.
+- `/coding-network on|off` sets whether new coding tasks can use network access. It defaults to `on` so package registries such as PyPI/npm work during coding tasks.
+- `/coding-network <task_id> on|off` changes the stored network mode for a specific task. `/coding-allow-network <task_id>` is a shortcut for turning it on.
+- If an older Codex thread was created before network was enabled, Quarq restarts Codex from the saved task context on the next continuation so the new network mode actually reaches the provider shell.
+- If a Telegram chat lists or inspects a running coding task, that chat is subscribed to future progress/completion updates for the task.
+- When `/connect telegram` succeeds, Quarq also subscribes known Telegram chats from `TELEGRAM_ALLOWED_USERS` or previous Telegram history to currently active coding tasks.
+- Asking the agent to change the coding agent, workspace, or network mode can use the same native coding-agent config tool.
+
+Common Codex session flow:
+
+```text
+/coding build an ml project scaffold
+/coding-continue add a README and run the tests
+/coding-new investigate a separate bug in the API
+/coding-continue <task_id> continue an older task explicitly
+```
+
+Each Codex task stores the provider session id when Codex returns one, so
+`/coding-continue` can resume the same Codex thread instead of starting from a
+blank session.
+
+Codex MCP returns the final tool result at the end of a provider call rather
+than streaming every shell stdout line to Quarq. For long work, Quarq injects a
+progress-reporting instruction and polls the workspace progress file above; if
+Codex cannot write it, Quarq still sends periodic heartbeat/status events.
+
+For commands that need a task id, the CLI provides task-id selection. Type the
+command followed by a space, choose a recent task with `Ctrl+N` / `Ctrl+P`, then
+press `Tab` to insert the selected id:
+
+```text
+/coding-status <space>
+/coding-log <space>
+/coding-reply <space>
+/coding-cancel <space>
+/coding-delete <space>
+/coding-continue <space>
+/coding-network <space>
+/coding-allow-network <space>
+```
+
+Task statuses:
+
+```text
+queued
+running
+waiting_user
+completed
+failed
+cancelled
+```
+
+Default safety policy:
+
+- Auto-approve low-risk read-only operations, normal edits inside the configured workspace, and routine test/build commands.
+- Coding-task network access defaults to `on` inside the workspace-write sandbox. Turn it off globally with `/coding-network off`, or for a task with `/coding-network <task_id> off`.
+- Ask for user confirmation before destructive commands, writes outside the workspace, secret/env edits, git commits, git pushes, credential access, or anything the provider explicitly marks as confirmation-required.
+
+Coding requests use a shallow retrieval profile in normal channels. Quarq still
+retrieves recent local context, but it skips the HyDE LLM call and forces
+standard mode with small `top_k` instead of broad/deep memory search. Benchmark
+mode is unchanged.
 
 ### Adding A New Tool
 
@@ -643,29 +788,33 @@ These metrics represent the current LongMemEval-S progress while Quarq Agent is 
 - An [OpenAI API key](https://platform.openai.com/api-keys)
 - Optional for Telegram: a Telegram bot token from `@BotFather`
 - Optional for Telegram without a domain: `cloudflared` on your `PATH`
+- Optional for coding delegation: OpenAI Codex CLI on your `PATH`
 
 ## Quick Start
 
-Create a virtual environment:
+Clone the repo, then run the setup script from the repo root.
+
+macOS/Linux:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python3 scripts/setup_argus.py
 ```
 
-Install dependencies:
+Windows PowerShell:
 
-```bash
-pip install -r requirements.txt
+```powershell
+py scripts\setup_argus.py
 ```
 
-Create `.env`:
+The setup script:
 
-```bash
-cp .env.example .env
-```
+- creates `.venv`
+- installs `requirements.txt`
+- creates `.env` from `.env.example` if missing
+- installs the global `argus` launcher for your user
+- updates the user `PATH` for future terminals when possible
 
-Minimum required values:
+After setup, edit `.env` and fill at least:
 
 ```bash
 OPENAI_API_KEY=your_api_key
@@ -674,13 +823,44 @@ AGENT_ID=local_agent
 LOCAL_MEMORY_ROOT=local_memory
 ```
 
-Run the local control console:
+Open a new terminal, or run the PATH refresh command printed by the setup
+script. Then start Argus from any directory:
 
 ```bash
-python agent_cli.py
+argus
 ```
 
+If you only want to install or repair the global launcher without reinstalling
+dependencies, run the lighter launcher installer.
+
+macOS/Linux:
+
+```bash
+python3 scripts/install_argus.py --force
+```
+
+Windows PowerShell:
+
+```powershell
+py scripts\install_argus.py --force
+```
+
+The global launcher points back to the cloned repo. If you move or delete that
+repo folder, rerun the launcher installer from the new location.
+
 The control console starts `main:app` for you, connects the CLI to the API job queue, and shows structured events as requests move through retrieval, tool routing, generation, tool use, and final response.
+
+For coding-agent delegation, the default Codex provider launches:
+
+```bash
+codex mcp-server
+```
+
+The Python side uses the OpenAI Agents SDK dependency from `requirements.txt`.
+If the Codex CLI or the Agents SDK is missing, Quarq records a failed coding
+task with a setup message instead of crashing. On macOS, if `codex` is not on
+the API worker's `PATH`, Quarq also checks the standard Codex.app binary at
+`/Applications/Codex.app/Contents/Resources/codex`.
 
 The API worker keeps process-lifetime chat history per channel and passes the
 last four user/assistant pairs into each agent request. This preserves short
@@ -714,7 +894,8 @@ curl -X POST http://127.0.0.1:8000/api/chat \
 - starts `main:app` on `127.0.0.1:8000`
 - hides noisy HTTP client logs
 - shows a scrollable transcript of structured events
-- shows the current model label, working directory, API URL, connected channels, and startup channels
+- shows the current model label, working directory, API URL, connected channels, startup channels, default coding agent, coding workspace, and coding network mode
+- reads the agent name from the live local identity config, so a rename through `agent_identity_manager` updates the header without restarting
 - supports formatted Markdown in agent responses
 - supports multiline input: `Enter` sends, `Shift+Enter` inserts a newline
 - supports command suggestions when you type `/`, with `Tab` completing the first suggestion
@@ -729,6 +910,23 @@ Console commands:
 /cloud-tools
 /add-tool <tool>
 /remove-tool <tool>
+/coding <task>
+/coding-new <task>
+/coding-continue <message>
+/coding-continue <task_id> <message>
+/coding-tasks
+/coding-agents
+/coding-use <provider>
+/coding-workspace <path>
+/coding-network [on|off]
+/coding-network <task_id> on|off
+/coding-allow-network <task_id>
+/coding-status <task_id>
+/coding-log <task_id>
+/coding-reply <task_id> <message>
+/coding-cancel <task_id>
+/coding-delete <task_id>
+/coding-clear
 /connect telegram
 set-default start-channel telegram
 set-default start-channel none
@@ -758,7 +956,7 @@ Supported identity fields:
 
 ```json
 {
-  "agent_name": "Quarq Agent",
+  "agent_name": "Argus",
   "agent_personality": "professional and helpful",
   "agent_use_cases": ["general assistance"],
   "agent_custom_prompt": ""
@@ -768,7 +966,7 @@ Supported identity fields:
 Initial values can come from `.env`:
 
 ```bash
-AGENT_NAME=My_Quarq_Agent
+AGENT_NAME=Argus
 AGENT_PERSONALITY="friendly, precise, high-energy"
 AGENT_USE_CASES=["coding","research","life-long memory"]
 AGENT_CUSTOM_PROMPT="Be concise, grounded, and useful."
@@ -830,6 +1028,23 @@ Channel commands also work from Telegram:
 /cloud-tools
 /add-tool <tool>
 /remove-tool <tool>
+/coding <task>
+/coding-new <task>
+/coding-continue <message>
+/coding-continue <task_id> <message>
+/coding-tasks
+/coding-agents
+/coding-use <provider>
+/coding-workspace <path>
+/coding-network [on|off]
+/coding-network <task_id> on|off
+/coding-allow-network <task_id>
+/coding-status <task_id>
+/coding-log <task_id>
+/coding-reply <task_id> <message>
+/coding-cancel <task_id>
+/coding-delete <task_id>
+/coding-clear
 /wipe
 /quit
 ```
@@ -854,12 +1069,33 @@ GET  /api/jobs/{job_id}
 GET  /api/events?after=<event_id>
 ```
 
+Coding-task routes:
+
+```text
+GET  /api/coding-agents
+POST /api/coding-agents/default
+POST /api/coding-agents/workspace
+POST /api/coding-agents/network
+GET  /api/coding-tasks
+DELETE /api/coding-tasks
+POST /api/coding-tasks/subscribe-channel
+POST /api/coding-tasks
+POST /api/coding-tasks/latest/reply
+GET  /api/coding-tasks/{task_id}
+DELETE /api/coding-tasks/{task_id}
+GET  /api/coding-tasks/{task_id}/logs
+POST /api/coding-tasks/{task_id}/reply
+POST /api/coding-tasks/{task_id}/cancel
+POST /api/coding-tasks/{task_id}/network
+```
+
 The CLI uses the job routes. A request is enqueued, the single worker processes jobs one by one, and status events are emitted for:
 
 - retrieval
 - tool routing
 - generation
 - tool running/completed/failed
+- coding-agent progress
 - final response
 
 This is what lets the console show useful loader text such as memory retrieval, response generation, and active tool usage instead of blocking silently until the final answer arrives.
@@ -891,6 +1127,14 @@ This is what lets the console show useful loader text such as memory retrieval, 
 | `CLOUD_TOOLKITS` | no | Comma-separated cloud-tool slugs. Defaults to `github,gmail,googlecalendar,slack,notion,linear`. |
 | `CLOUD_TOOLS_CONFIG_PATH` | no | Optional override for enabled cloud-tool config. Defaults to `local_memory/<AGENT_ID>/agent_tools.json`. |
 | `CLOUD_TOOLS_CACHE_DIR` | no | Writable cloud-tool SDK cache directory. Defaults to `local_memory/cloud_tools_cache`. |
+| `CODING_AGENTS_ENABLED` | no | Enables coding-agent delegation. Defaults to `true`. |
+| `CODING_AGENT_DEFAULT_PROVIDER` | no | Default coding provider. V1 supports `codex`. |
+| `CODEX_MCP_COMMAND` | no | Command used to launch Codex MCP. Defaults to `codex`. |
+| `CODEX_MCP_ARGS` | no | Comma-separated args for Codex MCP. Defaults to `mcp-server`. |
+| `CODEX_WORKSPACE_ROOT` | no | Workspace path for delegated coding work. `.env.example` uses `.`, resolved from the user's launch directory. |
+| `CODEX_APPROVAL_POLICY` | no | Approval policy label. Defaults to `quarq-safe-auto`. |
+| `CODEX_NETWORK_ACCESS` | no | Allows network access for new Codex coding tasks inside the workspace-write sandbox. Defaults to `true`; use `/coding-network off` to disable locally. |
+| `CODEX_TASK_TIMEOUT_SECONDS` | no | Max runtime for a delegated coding task. Defaults to `1800`. |
 | `TELEGRAM_BOT_TOKEN` | Telegram only | Bot token from `@BotFather`. Required for `/connect telegram`. |
 | `TELEGRAM_ALLOWED_USERS` | Telegram recommended | Comma-separated numeric Telegram user IDs allowed to use the local agent. |
 | `TELEGRAM_WEBHOOK_SECRET` | Telegram recommended | Secret token sent to Telegram `setWebhook` and verified by `/api/telegram/webhook`. |
@@ -907,11 +1151,13 @@ agent_config.py           Local agent identity config loader/saver
 agent_connector.py        Public async integration gateway
 main.py                   FastAPI single-tenant worker
 local_channel_store.py    Durable channel history and attachment storage
+coding_agents/            Provider-neutral coding task store, policy, manager, Codex runner
 run_dataset_evals.py      LongMemEval evaluation runner
 run_dataset_evals_parallel.py
                           Parallel LongMemEval evaluation runner
 monitor_results.py        Benchmark monitoring helper
 tools/                    Skill registry and tool implementations
+tools/coding_agent/       Native skill for coding-agent delegation
 eval_datasets/            Cleaned LongMemEval dataset
 reports/                  Evaluation outputs and checkpoints
 local_memory/             Local FAISS and JSON memory stores

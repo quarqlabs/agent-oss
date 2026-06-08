@@ -69,7 +69,7 @@ class TestSkillDiscovery:
 
         skills = discover_skills()
 
-        assert {"agent_identity_manager", "composio"}.issubset(skills)
+        assert {"agent_identity_manager", "composio", "coding_agent"}.issubset(skills)
         assert "email" not in skills
         assert "calendar" not in skills
         assert "pdf_generator" not in skills

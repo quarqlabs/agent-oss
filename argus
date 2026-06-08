@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do
+  DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+
+ROOT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+
+if [ -x "$ROOT_DIR/.venv/bin/python" ]; then
+  PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
+elif [ -x "$ROOT_DIR/agent-oss/bin/python" ]; then
+  PYTHON_BIN="$ROOT_DIR/agent-oss/bin/python"
+else
+  PYTHON_BIN="${PYTHON:-python3}"
+fi
+
+exec "$PYTHON_BIN" "$ROOT_DIR/agent_cli.py" "$@"

@@ -331,6 +331,7 @@ def format_enabled_tools() -> str:
     rows = [
         "Native tools:",
         "- Agent identity manager - update the local agent name, personality, use cases, and custom prompt.",
+        "- Coding agent - delegate repo/code edit, debug, refactor, test, and implementation tasks.",
         "",
         "Enabled cloud tools:",
     ]
@@ -376,6 +377,24 @@ def recommend_tool_for_task(task: str) -> str:
     lower_text = text.lower()
     if any(word in lower_text for word in ("agent name", "personality", "use case", "custom prompt", "identity")):
         return "Use the native Agent identity manager for that request."
+    if any(
+        word in lower_text
+        for word in (
+            "code",
+            "repo",
+            "repository",
+            "bug",
+            "debug",
+            "implement",
+            "refactor",
+            "test",
+            "build",
+            "edit file",
+            "codex",
+            "coding agent",
+        )
+    ):
+        return "Use the native Coding agent for repo/code/edit/test/debug tasks. Start one with `/coding <task>`."
 
     matches = []
     catalog, _ = load_cloud_tool_catalog()
