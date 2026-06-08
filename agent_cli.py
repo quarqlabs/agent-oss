@@ -37,6 +37,26 @@ from agent_tools_config import format_slug_list, load_enabled_cloud_tools
 from coding_agents.config import coding_config_summary, load_settings
 from coding_agents.task_store import CodingTaskStore
 
+
+def configure_stdio_for_windows() -> None:
+    """Keep Windows terminals from crashing on Unicode status output."""
+    if os.name != "nt":
+        return
+    os.environ.setdefault("PYTHONUTF8", "1")
+    os.environ.setdefault("PYTHONIOENCODING", "utf-8:replace")
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+configure_stdio_for_windows()
+
 try:
     from textual.app import App as TextualApp
     from textual.binding import Binding
@@ -2274,6 +2294,9 @@ def build_terminal_ui(api_base: str) -> TextualTerminalUi | None:
 def start_api_server(host: str, port: int, log_level: str) -> subprocess.Popen:
     os.environ.setdefault("USER_ID", "local_cli_user")
     os.environ.setdefault("QUARQ_LAUNCH_CWD", str(LAUNCH_CWD))
+    child_env = os.environ.copy()
+    child_env.setdefault("PYTHONUTF8", "1")
+    child_env.setdefault("PYTHONIOENCODING", "utf-8:replace")
 
     command = [
         sys.executable,
@@ -2291,6 +2314,7 @@ def start_api_server(host: str, port: int, log_level: str) -> subprocess.Popen:
     return subprocess.Popen(
         command,
         cwd=BASE_DIR,
+        env=child_env,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )

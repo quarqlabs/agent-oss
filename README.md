@@ -848,6 +848,14 @@ py scripts\install_argus.py --force
 The global launcher points back to the cloned repo. If you move or delete that
 repo folder, rerun the launcher installer from the new location.
 
+On Windows, the launcher sets Python UTF-8 mode so CLI/API status symbols do
+not crash under legacy `cmd.exe` code pages. If you see a `charmap` error such
+as `can't encode character '\u274c'`, pull the latest code and rerun:
+
+```powershell
+py scripts\install_argus.py --force
+```
+
 The control console starts `main:app` for you, connects the CLI to the API job queue, and shows structured events as requests move through retrieval, tool routing, generation, tool use, and final response.
 
 For coding-agent delegation, the default Codex provider launches:

@@ -159,12 +159,16 @@ def install_windows(root: Path, force: bool, dry_run: bool) -> int:
         f'set "ARGUS_ROOT={root_text}"\r\n'
         'set "ARGUS_PYTHON=%ARGUS_ROOT%\\.venv\\Scripts\\python.exe"\r\n'
         'if not exist "%ARGUS_PYTHON%" set "ARGUS_PYTHON=python"\r\n'
+        'set "PYTHONUTF8=1"\r\n'
+        'set "PYTHONIOENCODING=utf-8:replace"\r\n'
         '"%ARGUS_PYTHON%" "%ARGUS_ROOT%\\agent_cli.py" %*\r\n'
     )
     ps1_content = (
         f'$ArgusRoot = "{root_text}"\r\n'
         '$VenvPython = Join-Path $ArgusRoot ".venv\\Scripts\\python.exe"\r\n'
         '$Python = if (Test-Path $VenvPython) { $VenvPython } else { "python" }\r\n'
+        '$env:PYTHONUTF8 = "1"\r\n'
+        '$env:PYTHONIOENCODING = "utf-8:replace"\r\n'
         '& $Python (Join-Path $ArgusRoot "agent_cli.py") @args\r\n'
     )
 

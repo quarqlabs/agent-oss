@@ -29,6 +29,24 @@ import uuid
 from functools import wraps
 from agent_config import load_agent_config
 
+
+def configure_stdio_for_windows() -> None:
+    """Avoid Windows legacy code pages crashing on status symbols in logs."""
+    if os.name != "nt":
+        return
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+configure_stdio_for_windows()
+
 # ==========================================
 # 1. SETUP & AUTHENTICATION
 # ==========================================
