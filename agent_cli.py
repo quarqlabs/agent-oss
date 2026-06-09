@@ -416,7 +416,7 @@ class TextualTerminalUi:
         self.model_label = model_label()
         self.directory_label = compact_path(LAUNCH_CWD)
         self.agent_name = load_cli_agent_name()
-        self.agent_version = os.getenv("ARGUS_AGENT_VERSION", "v0.4.4").strip() or "v0.4.4"
+        self.agent_version = os.getenv("ARGUS_AGENT_VERSION", "v0.5.0").strip() or "v0.5.0"
         self.coding_agent_label = "codex"
         self.coding_workspace_label = compact_path(LAUNCH_CWD)
         self.coding_network_label = "net:on"
@@ -1148,6 +1148,40 @@ class ArgusApiClient:
         return response.json()
 
 
+def cloudflared_missing_message() -> str:
+    if os.name == "nt":
+        return (
+            "cloudflared is not installed or not on PATH. Install it with: "
+            "winget install --id Cloudflare.cloudflared --source winget "
+            "--accept-package-agreements --accept-source-agreements. "
+            "If winget is unavailable, run setup again so it can download "
+            "C:\\cloudflared\\cloudflared.exe directly, or set CLOUDFLARED_BIN to the full cloudflared.exe path."
+        )
+    if sys.platform == "darwin" or shutil.which("brew"):
+        return (
+            "cloudflared is not installed or not on PATH. Install it with: "
+            "brew install cloudflare/cloudflare/cloudflared"
+        )
+    return (
+        "cloudflared is not installed or not on PATH. Install cloudflared and make sure it is on PATH, "
+        "or set CLOUDFLARED_BIN to the full executable path."
+    )
+
+
+def resolve_cloudflared_executable(command: str) -> str | None:
+    executable = shutil.which(command)
+    if executable:
+        return executable
+    command_path = Path(command)
+    if command_path.exists():
+        return str(command_path)
+    if os.name == "nt" and command == "cloudflared":
+        direct_path = Path("C:/cloudflared/cloudflared.exe")
+        if direct_path.exists():
+            return str(direct_path)
+    return None
+
+
 class CloudflareTunnel:
     def __init__(self, local_url: str, events: EventLog, command: str = "cloudflared"):
         self.local_url = local_url.rstrip("/")
@@ -1158,11 +1192,9 @@ class CloudflareTunnel:
         self.url_future: asyncio.Future[str] | None = None
 
     async def start(self, timeout: float = 45) -> str:
-        executable = shutil.which(self.command)
+        executable = resolve_cloudflared_executable(self.command)
         if not executable:
-            raise RuntimeError(
-                "cloudflared is not installed or not on PATH. Install it with: brew install cloudflare/cloudflare/cloudflared"
-            )
+            raise RuntimeError(cloudflared_missing_message())
 
         self.url_future = asyncio.get_running_loop().create_future()
         self.process = await asyncio.create_subprocess_exec(

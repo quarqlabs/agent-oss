@@ -1,4 +1,4 @@
-﻿# Argus Agent v0.5.0
+# Argus Agent v0.4.4
 
 import os
 import json
@@ -142,14 +142,6 @@ retrieval_llm = ChatOpenAI(
 
 )
 
-triage_llm = ChatOpenAI(
-    api_key=SecretStr(raw_api_key),
-    temperature=0,
-    model=os.getenv("TRIAGE_MODEL", "gpt-4o-mini"),
-    timeout=15,
-    max_retries=2,
-)
-
 gen_llm = ChatOpenAI(
     model="gpt-4.1",
     api_key=SecretStr(raw_api_key),
@@ -182,16 +174,16 @@ embed_client = OpenAIEmbeddings(
 # GLOBAL CACHE & CONCURRENCY LIMITERS
 # ==========================================
 AGENT_CONFIG_CACHE = None
-LEARNING_SEMAPHORE = asyncio.Semaphore(4)  # ðŸ› ï¸ NEW: Max 4 concurrent DB saves
+LEARNING_SEMAPHORE = asyncio.Semaphore(4)  # 🛠️ NEW: Max 4 concurrent DB saves
 INGESTION_LEARNING_LOCK = asyncio.Lock()
-PENDING_LEARNING_TASKS = set()  # ðŸ› ï¸ NEW: Tracks active background tasks
+PENDING_LEARNING_TASKS = set()  # 🛠️ NEW: Tracks active background tasks
 
 
 
 # ==========================================
 # ROBUST NETWORK RETRY DECORATOR
 # ==========================================
-def network_retry(max_retries=4, initial_delay=2.0, timeout=15.0): # ðŸ› ï¸ ADDED TIMEOUT
+def network_retry(max_retries=4, initial_delay=2.0, timeout=15.0): # 🛠️ ADDED TIMEOUT
     """Automatically retries an async function and prevents infinite thread hanging."""
     def decorator(func):
         @wraps(func)
@@ -199,15 +191,15 @@ def network_retry(max_retries=4, initial_delay=2.0, timeout=15.0): # ðŸ› ï
             delay = initial_delay
             for attempt in range(max_retries):
                 try:
-                    # ðŸ› ï¸ FORCE TIMEOUT ON THE FUNCTION CALL
+                    # 🛠️ FORCE TIMEOUT ON THE FUNCTION CALL
                     return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
                 except asyncio.TimeoutError:
-                    debug_print(f"âš ï¸ [Network Timeout] {func.__name__} hung for {timeout}s (Attempt {attempt+1}/{max_retries}).")
+                    print(f"⚠️ [Network Timeout] {func.__name__} hung for {timeout}s (Attempt {attempt+1}/{max_retries}).")
                 except Exception as e:
                     if attempt == max_retries - 1:
-                        print(f"âŒ [Fatal Error] {func.__name__} failed after {max_retries} attempts: {e}")
+                        print(f"❌ [Fatal Error] {func.__name__} failed after {max_retries} attempts: {e}")
                         raise e 
-                    print(f"âš ï¸ [Network Retry] {func.__name__} failed ({e}). Retrying in {delay}s...")
+                    print(f"⚠️ [Network Retry] {func.__name__} failed ({e}). Retrying in {delay}s...")
                 
                 if attempt < max_retries - 1:
                     await asyncio.sleep(delay)
@@ -217,7 +209,7 @@ def network_retry(max_retries=4, initial_delay=2.0, timeout=15.0): # ðŸ› ï
     return decorator
 
 
-def persistent_network_retry(initial_delay=2.0, max_delay=60.0, timeout=None): # ðŸ› ï¸ Changed default to None
+def persistent_network_retry(initial_delay=2.0, max_delay=60.0, timeout=None): # 🛠️ Changed default to None
     """
     An infinite retry loop for background tasks. 
     It will NEVER drop the task. It keeps trying forever until it succeeds.
@@ -227,16 +219,16 @@ def persistent_network_retry(initial_delay=2.0, max_delay=60.0, timeout=None): #
         async def wrapper(*args, **kwargs):
             delay = initial_delay
             attempt = 1
-            while True:  # ðŸ› ï¸ INFINITE LOOP
+            while True:  # 🛠️ INFINITE LOOP
                 try:
                     if timeout:
                         return await asyncio.wait_for(func(*args, **kwargs), timeout=timeout)
                     else:
-                        return await func(*args, **kwargs) # ðŸ› ï¸ Waits forever without killing the nested DB loop
+                        return await func(*args, **kwargs) # 🛠️ Waits forever without killing the nested DB loop
                 except asyncio.TimeoutError:
-                    print(f"âš ï¸ [Persistent Queue] {func.__name__} hung for {timeout}s (Attempt {attempt}). Retrying...")
+                    print(f"⚠️ [Persistent Queue] {func.__name__} hung for {timeout}s (Attempt {attempt}). Retrying...")
                 except Exception as e:
-                    print(f"âš ï¸ [Persistent Queue] {func.__name__} failed ({e}) (Attempt {attempt}). Retrying in {delay}s...")
+                    print(f"⚠️ [Persistent Queue] {func.__name__} failed ({e}) (Attempt {attempt}). Retrying in {delay}s...")
                 
                 # Exponential backoff, capped at `max_delay`
                 await asyncio.sleep(delay)
@@ -631,7 +623,7 @@ def extract_list_items(text: str, current_time: str, artifact_context: str) -> l
     current_heading = "the artifact"
 
     heading_re = re.compile(r"^\s*(#{1,6}\s+.+|[A-Z][^.!?]{3,80}:)\s*$")
-    item_re = re.compile(r"^\s*(?:[-*â€¢]|\d+[.)])\s+(.+)$")
+    item_re = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(.+)$")
 
     for line in text.splitlines():
         clean = line.strip()
@@ -717,7 +709,7 @@ def _split_named_list_item(body: str) -> tuple[str, str] | None:
         return None
 
     match = re.match(
-        r"(?P<title>.{2,120}?)(?:\s+[-â€“â€”]\s+|:\s+)(?P<desc>.+)$",
+        r"(?P<title>.{2,120}?)(?:\s+[-–—]\s+|:\s+)(?P<desc>.+)$",
         body,
     )
     if not match:
@@ -777,7 +769,7 @@ def extract_artifact_list_item_memories(
     `1. The Sugar Factory - ...`, not generic step-by-step instructions.
     """
     memories = []
-    item_re = re.compile(r"^\s*(?:[-*â€¢]|\d+[.)])\s+(.+?)\s*$")
+    item_re = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s+(.+?)\s*$")
     context_signal_re = re.compile(
         r"\b(recommend|suggest|option|idea|place|spot|restaurant|shop|activity|"
         r"things to do|where to|itinerary|list|example|dessert|dining|"
@@ -849,8 +841,8 @@ def extract_factual_numbered_item_memories(
 
         body = _strip_inline_markdown(re.sub(r"\s+", " ", match.group(1)).strip())
         has_answerable_detail = bool(
-            re.search(r"\d|[$â‚¬Â£Â¥%]", body)
-            or re.search(r"[\"'â€œâ€][^\"'â€œâ€]{2,80}[\"'â€œâ€]", body)
+            re.search(r"\d|[$€£¥%]", body)
+            or re.search(r"[\"'“”][^\"'“”]{2,80}[\"'“”]", body)
             or re.search(r"\b[A-Z]{2,}\b", body)
             or len(re.findall(r"\b[A-Z][A-Za-z0-9&'+-]*\b", body)) >= 2
         )
@@ -887,7 +879,7 @@ def extract_ordered_sequence_memories(
     artifact_context: str,
 ) -> list[str]:
     """Preserve exact ordered sequence units that LLM summaries often compress."""
-    normalized = re.sub(r"\s+", " ", text.replace("â€¦", "...")).strip()
+    normalized = re.sub(r"\s+", " ", text.replace("…", "...")).strip()
     if not normalized:
         return []
 
@@ -1169,7 +1161,7 @@ class VectorMemoryManager:
                 data = json.load(f)
             return data if isinstance(data, list) else []
         except Exception as e:
-            print(f"âš ï¸ [Memory] Failed to load {self.memory_type} store: {e}")
+            print(f"⚠️ [Memory] Failed to load {self.memory_type} store: {e}")
             return []
 
     def _save_memories(self):
@@ -1208,7 +1200,7 @@ class VectorMemoryManager:
                 if index.ntotal == len(self.memories):
                     return index
             except Exception as e:
-                print(f"âš ï¸ [Memory] Failed to load FAISS index: {e}")
+                print(f"⚠️ [Memory] Failed to load FAISS index: {e}")
 
         self.index = self._new_index()
         self._rebuild_index()
@@ -1245,7 +1237,7 @@ class VectorMemoryManager:
             if len(self.memories) != before:
                 self._rebuild_index()
                 self._save_memories()
-                debug_print(f"ðŸ—‘ï¸ [Memory] DELETED {self.memory_type} memory: {record_id}")
+                debug_print(f"🗑️ [Memory] DELETED {self.memory_type} memory: {record_id}")
                 return {"action": "DELETE", "id": record_id}
             return None
 
@@ -1262,7 +1254,7 @@ class VectorMemoryManager:
             if self.index.ntotal > 0:
                 scores, _ = self.index.search(vector, 1)
                 if scores[0][0] >= 0.95:
-                    debug_print(f"ðŸ”„ [Memory] Skipped duplicate {self.memory_type} ADD.")
+                    debug_print(f"🔄 [Memory] Skipped duplicate {self.memory_type} ADD.")
                     return None
 
             now = self._action_entry_time(action, self._now())
@@ -1278,7 +1270,7 @@ class VectorMemoryManager:
             self.memories.append(memory)
             self.index.add(vector)
             self._save_memories()
-            debug_print(f"âœ… [Memory] ADDED {self.memory_type}: {content[:30]}...")
+            debug_print(f"✅ [Memory] ADDED {self.memory_type}: {content[:30]}...")
             return {"action": "ADD", "id": memory["id"], "memory": memory.copy()}
 
         if act_type == "UPDATE" and record_id:
@@ -1289,7 +1281,7 @@ class VectorMemoryManager:
                     memory["updated_at"] = self._now()
                     self._rebuild_index()
                     self._save_memories()
-                    debug_print(f"âœï¸ [Memory] UPDATED {self.memory_type} memory: {record_id}")
+                    debug_print(f"✏️ [Memory] UPDATED {self.memory_type} memory: {record_id}")
                     return {"action": "UPDATE", "id": record_id, "memory": memory.copy()}
 
         return None
@@ -1310,7 +1302,7 @@ class VectorMemoryManager:
 
             normalized_content = re.sub(r"\s+", " ", content).lower()
             if normalized_content in seen_contents:
-                debug_print(f"ðŸ”„ [Memory] Skipped exact duplicate {self.memory_type} ADD.")
+                debug_print(f"🔄 [Memory] Skipped exact duplicate {self.memory_type} ADD.")
                 continue
 
             seen_contents.add(normalized_content)
@@ -1336,7 +1328,7 @@ class VectorMemoryManager:
             if self.index.ntotal > 0:
                 scores, _ = self.index.search(vector, 1)
                 if scores[0][0] >= 0.95:
-                    debug_print(f"ðŸ”„ [Memory] Skipped duplicate {self.memory_type} ADD.")
+                    debug_print(f"🔄 [Memory] Skipped duplicate {self.memory_type} ADD.")
                     continue
 
             created_at = self._action_entry_time(action, now)
@@ -1352,7 +1344,7 @@ class VectorMemoryManager:
             self.memories.append(memory)
             self.index.add(vector)
             results.append({"action": "ADD", "id": memory["id"], "memory": memory.copy()})
-            debug_print(f"âœ… [Memory] ADDED {self.memory_type}: {content[:30]}...")
+            debug_print(f"✅ [Memory] ADDED {self.memory_type}: {content[:30]}...")
 
         if results:
             self._save_memories()
@@ -1468,7 +1460,7 @@ class VectorMemoryManager:
                 shutil.rmtree(self.folder)
             os.makedirs(self.folder, exist_ok=True)
             self._save_memories()
-            print(f"ðŸ§¹ [Memory] Wiped all {self.memory_type} memories for agent {AGENT_ID}.")
+            print(f"🧹 [Memory] Wiped all {self.memory_type} memories for agent {AGENT_ID}.")
 
 
 semantic_db = VectorMemoryManager("Semantic")
@@ -1505,7 +1497,7 @@ def _load_rules_file() -> list:
             data = json.load(f)
         return data if isinstance(data, list) else []
     except Exception as e:
-        print(f"âš ï¸ [Rules] Failed to load rules: {e}")
+        print(f"⚠️ [Rules] Failed to load rules: {e}")
         return []
 
 
@@ -1560,14 +1552,14 @@ async def wait_for_pending_learning_before_wipe():
 
     pending_tasks = list(PENDING_LEARNING_TASKS)
     print(
-        f"â³ [Memory Wipe] Waiting for {len(pending_tasks)} pending learning tasks..."
+        f"⏳ [Memory Wipe] Waiting for {len(pending_tasks)} pending learning tasks..."
     )
     results = await asyncio.gather(*pending_tasks, return_exceptions=True)
     failures = [result for result in results if isinstance(result, Exception)]
 
     if failures:
         print(
-            f"âš ï¸ [Memory Wipe] {len(failures)} pending learning task(s) failed before wipe."
+            f"⚠️ [Memory Wipe] {len(failures)} pending learning task(s) failed before wipe."
         )
 
 
@@ -1583,13 +1575,13 @@ async def wipe_all_memories():
         await semantic_db.clear()
         await episodic_db.clear()
         
-        # ðŸ› ï¸ USE THE NEW PROTECTED FUNCTION
+        # 🛠️ USE THE NEW PROTECTED FUNCTION
         await clear_procedural_rules()
         
-        print(f"ðŸ§¹ [Rules] Wiped all procedural rules for agent {AGENT_ID}.")
-        print(f"âœ… Agent {AGENT_ID} is now completely blank and ready for the next test.")
+        print(f"🧹 [Rules] Wiped all procedural rules for agent {AGENT_ID}.")
+        print(f"✅ Agent {AGENT_ID} is now completely blank and ready for the next test.")
     except Exception as e:
-        print(f"âŒ [Error] Failed to wipe all memories: {e}")
+        print(f"❌ [Error] Failed to wipe all memories: {e}")
 
 def sort_memories_by_recency(memory_block: str,max_lines: int = 15) -> str:
     """Parses timestamps in a block of text and sorts lines newest-to-oldest."""
@@ -1612,7 +1604,7 @@ def sort_memories_by_recency(memory_block: str,max_lines: int = 15) -> str:
 
     # Sort lines by timestamp descending
     sorted_lines = sorted(lines, key=extract_timestamp, reverse=True)
-    # ðŸ› ï¸ TOKEN PROTECTION: Keep only the most recent N lines
+    # 🛠️ TOKEN PROTECTION: Keep only the most recent N lines
     capped_lines = sorted_lines[:max_lines]
     
     return "\n".join(capped_lines)
@@ -1885,7 +1877,7 @@ class AgentState(TypedDict):
     semantic_context: str
     episodic_context: str
     procedural_context: str
-    hyde_queries: list[str]         # ðŸ› ï¸ NEW: Pass queries to the next node
+    hyde_queries: list[str]         # 🛠️ NEW: Pass queries to the next node
     selected_skills: list[str]  # UPDATE: Now a list of strings
     skill_markdown: str  # NEW: Documentation for active tools
     final_response: str
@@ -1893,242 +1885,9 @@ class AgentState(TypedDict):
     user_id: str  # NEW: Unique identifier for the user
     channel_type: str  # NEW: e.g., 'telegram', 'whatsapp', 'terminal'
     metrics: dict
-    current_date: str  # ðŸ› ï¸ ADDED: To explicitly pass the benchmark date
+    current_date: str  # 🛠️ ADDED: To explicitly pass the benchmark date
     job_status_callback: Any
     attachments_context: str
-    triage_agent_response: str
-    triage_tool: bool
-    triage_retrieval: bool
-
-
-# ==========================================
-# 4b. NORMAL-CHANNEL TRIAGE NODE
-# ==========================================
-async def triage_request_node(state: AgentState):
-    """Fast normal-channel router. Benchmark traffic bypasses this node."""
-    start_time = time.time()
-    await report_job_status(state, "triage", "Checking whether retrieval or tools are needed.")
-
-    if is_memory_ingestion_prompt(state.get("user_prompt", "")):
-        return {
-            "triage_agent_response": "I need to retrieve more information before answering.",
-            "triage_tool": False,
-            "triage_retrieval": True,
-        }
-
-    history_text = "\n".join(
-        [f"{msg.type}: {msg.content}" for msg in state.get("chat_history", [])[-6:]]
-    )
-    attachment_note = ""
-    if str(state.get("attachments_context") or "").strip():
-        attachment_note = (
-            "The current message includes attachment context that is not shown here. "
-            "If the user asks about the attachment/file/image/audio, do not answer directly."
-        )
-    if state.get("current_date"):
-        current_time_str = state["current_date"]
-    else:
-        current_time_str = datetime.now().strftime("%A, %B %d, %Y at %I:%M %p")
-    triage_time_str = format_current_time(current_time_str)
-
-    triage_prompt = f"""
-You are the fast triage layer for a normal user request.
-
-Use semantic intent, not keyword matching.
-Do not route by matching words, examples, names, dates, locations, or fixed phrases.
-First understand the user's communicative act:
-- If the user is only giving information, sharing an update, correcting memory, journaling, or answering conversationally without asking for an answer or action, this is direct.
-- If the user is asking for an answer, decide whether the answer is already available in the current message or recent chat history. If yes, this is direct. If not, and the missing answer depends on stored personal memory, this needs retrieval.
-- If the user is asking the agent to perform an external/action capability or delegate work to a configured capability, this needs tools.
-- For action requests, tool-only is the default. Set retrieval=true only when a concrete required action input is missing from the current message and recent chat history, and that missing input must come from stored personal memory. Retrieval will happen before tool routing only in that narrow case.
-
-Return ONLY a valid JSON object with this exact shape:
-{{
-  "agent_response": "string",
-  "tool": false,
-  "retrieval": false
-}}
-
-ROUTES:
-1. Direct route:
-   - Use for information-only messages, normal conversation, general reasoning, and questions answerable from the current message or recent chat history.
-   - Use when the user gives a new personal fact or update but does not ask you to use old memory to answer something now.
-   - Use when a question can be answered without stored memory or tools.
-   - Set "tool": false and "retrieval": false.
-   - Put the direct final answer in "agent_response".
-
-2. Tool route:
-   - Use when the user's intent is for the agent to perform an operation beyond normal text answering, or to delegate work to an available capability.
-   - If all required action details are available in the current message or recent chat history, set "tool": true and "retrieval": false.
-   - If the user gives the target, date/time/scope, recipient/destination, content, workspace, file, app, or other needed action arguments in the current message/recent history, do NOT retrieve just because the request mentions personal projects, dates, people, email, calendar, files, travel, preferences, or prior context.
-   - If stored memory is needed before the action can be routed or completed, set both "tool": true and "retrieval": true. This is only for genuinely missing action inputs that are not available in the current message or recent chat history.
-   - Set "agent_response": "We are going to use tools now."
-
-3. Retrieval route:
-   - Use only when the user is asking for an answer and the answer depends on stored personal memory that is not already present in recent chat history.
-   - Use when the user asks for calculations, comparisons, timelines, lists, current/past state resolution, or personalized recommendations that require stored personal history.
-   - Do not use retrieval merely because the message contains personal facts, dates, places, people, preferences, travel, purchases, or current-state updates. Retrieval is for answering a requested question, not for acknowledging newly supplied information.
-   - Set "retrieval": true.
-   - If a tool will also be needed after memory lookup, set "tool": true too. Retrieval must happen before tools in that case.
-   - If no tool is needed, set "tool": false.
-   - Set "agent_response": "I need to retrieve more information before answering."
-
-CONSERVATIVE RULE:
-If the user is only giving information, direct always wins.
-If the user is asking a question and you are uncertain whether the answer depends on stored memory, choose retrieval=true.
-If the user clearly asks for an action and provides enough current-message/recent-history information to attempt it, choose tool=true and retrieval=false.
-If the user clearly asks for an action but an essential input is missing, choose retrieval=true and tool=true only when stored memory is the likely source of that missing input. Otherwise choose tool=true and retrieval=false so the tool/generation layer can ask for clarification if needed.
-If the user does not clearly ask for an action, do not set tool=true.
-The current system date/time is {triage_time_str}.
-
-{attachment_note}
-
-Recent chat history:
-{history_text if history_text else "None"}
-
-User message:
-{state["user_prompt"]}
-""".strip()
-
-    in_tokens = 0
-    out_tokens = 0
-    default_response = {
-        "triage_agent_response": "I need to retrieve more information before answering.",
-        "triage_tool": False,
-        "triage_retrieval": True,
-    }
-
-    try:
-        response = await triage_llm.ainvoke([HumanMessage(content=triage_prompt)])
-        metrics = get_token_metrics(response)
-        in_tokens += metrics["input"]
-        out_tokens += metrics["output"]
-        content = extract_pure_text(response)
-        json_str = extract_json_block(content, is_array=False)
-        data = json.loads(json_str)
-
-        agent_response = str(data.get("agent_response") or "").strip()
-        tool = bool(data.get("tool", False))
-        retrieval = bool(data.get("retrieval", False))
-
-        if not agent_response:
-            agent_response = (
-                "I need to retrieve more information before answering."
-                if retrieval
-                else "We are going to use tools now."
-                if tool
-                else ""
-            )
-
-        if not agent_response and not tool and not retrieval:
-            return default_response
-
-        end_time = time.time()
-        print(
-            f"â±ï¸ [Metrics] Triage Time: {end_time - start_time:.2f}s | Tokens: In({in_tokens}) Out({out_tokens})"
-        )
-        await report_job_status(
-            state,
-            "triage",
-            "Triage complete.",
-            {"tool": tool, "retrieval": retrieval},
-        )
-        current_metrics = state.get("metrics", {})
-        current_metrics.update({"triage_in": in_tokens, "triage_out": out_tokens})
-        return {
-            "triage_agent_response": agent_response,
-            "triage_tool": tool,
-            "triage_retrieval": retrieval,
-            "metrics": current_metrics,
-        }
-
-    except Exception as exc:
-        print(f"âš ï¸ [Triage] Failed; falling back to retrieval. {exc}")
-        await report_job_status(
-            state,
-            "triage",
-            "Triage failed; using retrieval.",
-            {"tool": False, "retrieval": True},
-        )
-        return default_response
-
-
-async def direct_response_node(state: AgentState):
-    """Return the triage answer directly and keep normal background learning."""
-    start_time = time.time()
-    final_output = str(state.get("triage_agent_response") or "").strip()
-    if not final_output:
-        final_output = "I can help with that."
-
-    await report_job_status(state, "finalizing", "Finalizing response.")
-
-    if state["channel_type"] != "terminal":
-        print(f"Agent Response :{final_output}")
-
-    if not state.get("skip_learning", False):
-        async def bounded_learning():
-            async with LEARNING_SEMAPHORE:
-                sem_ctx, epi_ctx, proc_ctx = await get_background_learning_contexts(
-                    state,
-                    state.get("semantic_context", ""),
-                    state.get("episodic_context", ""),
-                    state.get("procedural_context", ""),
-                )
-                await background_memory_update(
-                    state["user_prompt"],
-                    final_output,
-                    sem_ctx,
-                    epi_ctx,
-                    proc_ctx,
-                    state.get("current_date"),
-                )
-
-        task = asyncio.create_task(bounded_learning())
-        PENDING_LEARNING_TASKS.add(task)
-        task.add_done_callback(PENDING_LEARNING_TASKS.discard)
-
-    end_time = time.time()
-    print(f"\nâ±ï¸ [Metrics] Direct Response Time: {end_time - start_time:.2f}s")
-    return {
-        "final_response": final_output,
-        "metrics": state.get("metrics", {}),
-    }
-
-
-async def get_background_learning_contexts(
-    state: AgentState,
-    semantic_context: str,
-    episodic_context: str,
-    procedural_context: str,
-) -> tuple[str, str, str]:
-    """Retrieve prior memory for background learning when foreground skipped it."""
-    if state.get("channel_type") == "benchmark":
-        return semantic_context, episodic_context, procedural_context
-
-    if state.get("triage_retrieval", False):
-        return semantic_context, episodic_context, procedural_context
-
-    if is_memory_ingestion_prompt(state.get("user_prompt", "")):
-        return semantic_context, episodic_context, procedural_context
-
-    retrieval_state = dict(state)
-    retrieval_state["job_status_callback"] = None
-    retrieval_state["semantic_context"] = semantic_context
-    retrieval_state["episodic_context"] = episodic_context
-    retrieval_state["procedural_context"] = procedural_context
-    retrieval_state["retrieval_metric_label"] = "Learning Related Retrieval"
-
-    try:
-        debug_print("ðŸ§  [Background Learning] Retrieving prior memory before learning.")
-        result = await retrieve_memories_node(retrieval_state)
-        return (
-            result.get("semantic_context", semantic_context),
-            result.get("episodic_context", episodic_context),
-            result.get("procedural_context", procedural_context),
-        )
-    except Exception as exc:
-        print(f"âš ï¸ [Background Learning] Retrieval before learning failed; using existing context. {exc}")
-        return semantic_context, episodic_context, procedural_context
 
 
 # ==========================================
@@ -2138,24 +1897,24 @@ async def retrieve_memories_node(state: AgentState):
     start_time = time.time()  # START TIMER
     await report_job_status(state, "retrieval", "Building memory queries.")
 
-    # ðŸ› ï¸ BENCHMARK SYNC: If this is a final benchmark question, wait for all background memories to save FIRST!
+    # 🛠️ BENCHMARK SYNC: If this is a final benchmark question, wait for all background memories to save FIRST!
     global PENDING_LEARNING_TASKS
     if (
         state.get("channel_type") == "benchmark"
         and is_memory_ingestion_prompt(state.get("user_prompt", ""))
         and INGESTION_LEARNING_LOCK.locked()
     ):
-        print("â³ [Benchmark Ingestion] Waiting for previous ingestion learning before retrieval...")
+        print("⏳ [Benchmark Ingestion] Waiting for previous ingestion learning before retrieval...")
         async with INGESTION_LEARNING_LOCK:
             pass
-        print("âœ… [Benchmark Ingestion] Previous ingestion learning finished. Proceeding with retrieval.")
+        print("✅ [Benchmark Ingestion] Previous ingestion learning finished. Proceeding with retrieval.")
 
     if state.get("skip_learning", False) and PENDING_LEARNING_TASKS:
         print(
-            f"â³ [Benchmark Sync] Waiting for {len(PENDING_LEARNING_TASKS)} background chunks to finish saving to DB..."
+            f"⏳ [Benchmark Sync] Waiting for {len(PENDING_LEARNING_TASKS)} background chunks to finish saving to DB..."
         )
         await asyncio.gather(*PENDING_LEARNING_TASKS, return_exceptions=True)
-        print("âœ… [Benchmark Sync] All memories saved. Proceeding with retrieval.")
+        print("✅ [Benchmark Sync] All memories saved. Proceeding with retrieval.")
 
     in_tokens = 0
     out_tokens = 0
@@ -2170,7 +1929,7 @@ async def retrieve_memories_node(state: AgentState):
     )
     retrieval_profile = coding_retrieval_profile(user_prompt) if coding_profile else {}
 
-    # ðŸ› ï¸ NEW: Use the provided state date, fallback to system clock if none provided
+    # 🛠️ NEW: Use the provided state date, fallback to system clock if none provided
     if state.get("current_date"):
         current_time_str = state["current_date"]
     else:
@@ -2313,7 +2072,7 @@ async def retrieve_memories_node(state: AgentState):
         )
     else:
         hyde_response = await retrieval_llm.ainvoke([HumanMessage(content=hyde_prompt)])
-        # ðŸ› ï¸ FIXED: Use robust extractor
+        # 🛠️ FIXED: Use robust extractor
         content = extract_pure_text(hyde_response)
         
         
@@ -2331,7 +2090,7 @@ async def retrieve_memories_node(state: AgentState):
     content = content.strip()
 
     # ---------------------------------------------------------
-    # ðŸ› ï¸ BULLETPROOF JSON PARSING & DYNAMIC THRESHOLD LOGIC
+    # 🛠️ BULLETPROOF JSON PARSING & DYNAMIC THRESHOLD LOGIC
     # ---------------------------------------------------------
     search_queries = []
     keywords = []
@@ -2362,7 +2121,7 @@ async def retrieve_memories_node(state: AgentState):
             search_queries = parsed_data[:4]
             
     except Exception as e:
-        print(f"âš ï¸ [HyDE] JSON parse failed ({e}). Attempting text fallback.")
+        print(f"⚠️ [HyDE] JSON parse failed ({e}). Attempting text fallback.")
         
         lines = content.split('\n')
         cleaned_lines = []
@@ -2378,7 +2137,7 @@ async def retrieve_memories_node(state: AgentState):
             if len(cleaned_lines) > 4:
                 keywords = [k.strip() for k in cleaned_lines[4].split(",") if len(k.strip()) >= 3]
         else:
-            print("âš ï¸ [HyDE] Text fallback failed. Reverting to raw user prompt.")
+            print("⚠️ [HyDE] Text fallback failed. Reverting to raw user prompt.")
             search_queries = [user_prompt]
 
     # Ensure we don't have empty queries
@@ -2391,7 +2150,7 @@ async def retrieve_memories_node(state: AgentState):
         keywords = retrieval_profile["keywords"]
         search_mode = "standard"
 
-    # ðŸ› ï¸ DYNAMIC THRESHOLD APPLICATION
+    # 🛠️ DYNAMIC THRESHOLD APPLICATION
     current_threshold = retrieval_profile.get(
         "threshold",
         0.28 if search_mode == "deep" else 0.38,
@@ -2417,7 +2176,7 @@ async def retrieve_memories_node(state: AgentState):
         debug_print("HYDE Direct Keywords:", keywords)
 
 
-    # ðŸ› ï¸ CHANGED: CONCURRENT SEARCH FOR ALL QUERIES USING DYNAMIC THRESHOLD
+    # 🛠️ CHANGED: CONCURRENT SEARCH FOR ALL QUERIES USING DYNAMIC THRESHOLD
     semantic_tasks = [semantic_db.search(sq, top_k=current_top_k, threshold=current_threshold) for sq in search_queries]
     episodic_tasks = [episodic_db.search(sq, top_k=current_top_k, threshold=current_threshold) for sq in search_queries]
 
@@ -2429,7 +2188,7 @@ async def retrieve_memories_node(state: AgentState):
     all_semantic_results = await asyncio.gather(*semantic_tasks)
     all_episodic_results = await asyncio.gather(*episodic_tasks)
 
-    # ðŸ› ï¸ NEW: DEDUPLICATE RESULTS BASED ON DATABASE ID
+    # 🛠️ NEW: DEDUPLICATE RESULTS BASED ON DATABASE ID
     def deduplicate_memories(results_list):
         unique_memories = {}
         for result_block in results_list:
@@ -2450,11 +2209,11 @@ async def retrieve_memories_node(state: AgentState):
     episodic_result = sort_memories_by_recency(combined_episodic,max_lines=retrieval_max_lines)
 
     all_rules=[]
-      # ðŸ› ï¸ UPDATED: Procedural Tag Routing with CoT and Fallback
+      # 🛠️ UPDATED: Procedural Tag Routing with CoT and Fallback
     try:
         all_rules = await load_procedural_rules()
     except Exception:
-        print("âš ï¸ [Warning] Procedural rules completely failed to load after 4 retries. Moving on without them.")
+        print("⚠️ [Warning] Procedural rules completely failed to load after 4 retries. Moving on without them.")
         all_rules = []
 
 
@@ -2497,7 +2256,7 @@ async def retrieve_memories_node(state: AgentState):
         in_tokens += m["input"]
         out_tokens += m["output"]
 
-        # ðŸ› ï¸ FIXED: Use robust extractor
+        # 🛠️ FIXED: Use robust extractor
         content = extract_pure_text(response)
         
 
@@ -2528,7 +2287,7 @@ async def retrieve_memories_node(state: AgentState):
                 ):
                     matched_rules.append(rule)
 
-            # ðŸ› ï¸ CHANGED: Use the formatter to attach IDs and apply the Hard Limit
+            # 🛠️ CHANGED: Use the formatter to attach IDs and apply the Hard Limit
             procedural_result = get_formatted_rules_with_ids(matched_rules, limit=8)
 
         except Exception as e:
@@ -2550,12 +2309,9 @@ async def retrieve_memories_node(state: AgentState):
     # else:
     #     print("Procedural Found: None (No relevant tags found)")
 
-    metric_label = str(state.get("retrieval_metric_label") or "Retrieval")
-    metric_line = f"â±ï¸ [Metrics] {metric_label} Time: {end_time - start_time:.2f}s | Tokens: In({in_tokens}) Out({out_tokens})"
-    if metric_label == "Learning Related Retrieval" and state.get("channel_type") == "terminal":
-        debug_print(metric_line)
-    else:
-        print(metric_line)
+    print(
+        f"⏱️ [Metrics] Time: {end_time - start_time:.2f}s | Tokens: In({in_tokens}) Out({out_tokens})"
+    )
     debug_print("---------------------------------\n")
     await report_job_status(
         state,
@@ -2572,7 +2328,7 @@ async def retrieve_memories_node(state: AgentState):
         "semantic_context": semantic_result,
         "episodic_context": episodic_result,
         "procedural_context": procedural_result,
-        "hyde_queries": search_queries, # ðŸ› ï¸ NEW
+        "hyde_queries": search_queries, # 🛠️ NEW
         "metrics": {"retrieval_in": in_tokens, "retrieval_out": out_tokens},
     }
 
@@ -2589,7 +2345,7 @@ async def route_tools_node(state: AgentState):
         end_time = time.time()
         router_metrics = tool_manager.get_last_router_metrics()
         print(
-            f"â±ï¸ [Metrics] Tool Routing Time: {end_time - start_time:.2f}s | Tokens: In({router_metrics.get('input', 0)}) Out({router_metrics.get('output', 0)})"
+            f"⏱️ [Metrics] Tool Routing Time: {end_time - start_time:.2f}s | Tokens: In({router_metrics.get('input', 0)}) Out({router_metrics.get('output', 0)})"
         )
         debug_print("---------------------------------\n")
 
@@ -2621,18 +2377,12 @@ async def route_tools_node(state: AgentState):
         [f"{m.type}: {m.content}" for m in state["chat_history"][-6:]]
     )
 
-    # Only include memory in the tool router when this turn actually retrieved it.
-    has_memory_for_tools = any(
-        str(state.get(key, "") or "").strip() not in {"", "None"}
-        for key in ("semantic_context", "episodic_context", "procedural_context")
-    )
-    memory_context = ""
-    if has_memory_for_tools:
-        memory_context = f"""
-        [Semantic]: {state.get('semantic_context', 'None')}
-        [Episodic]: {state.get('episodic_context', 'None')}
-        [Procedural]: {state.get('procedural_context', 'None')}
-            """.strip()
+    # --- NEW: Compile memory context for the router ---
+    memory_context = f"""
+    [Semantic]: {state.get('semantic_context', 'None')}
+    [Episodic]: {state.get('episodic_context', 'None')}
+    [Procedural]: {state.get('procedural_context', 'None')}
+        """.strip()
 
     chosen_skills = await tool_manager.select_skills(
         user_prompt=state["user_prompt"],
@@ -2681,14 +2431,14 @@ async def generate_response_node(state: AgentState):
     in_tokens = 0
     out_tokens = 0
 
-    # ðŸ› ï¸ TRACK CONTEXT FOR STATE UPDATES & LEARNING
+    # 🛠️ TRACK CONTEXT FOR STATE UPDATES & LEARNING
     sem_ctx_to_save = state.get("semantic_context", "")
     epi_ctx_to_save = state.get("episodic_context", "")
 
-    global AGENT_CONFIG_CACHE  # ðŸ› ï¸ Pull in the global cache
+    global AGENT_CONFIG_CACHE  # 🛠️ Pull in the global cache
 
     if AGENT_CONFIG_CACHE is None:
-        debug_print("ðŸ“ [Local Config] Loading Agent Config from local identity config...")
+        debug_print("📁 [Local Config] Loading Agent Config from local identity config...")
         AGENT_CONFIG_CACHE = load_agent_config()
 
     cfg = AGENT_CONFIG_CACHE
@@ -2699,7 +2449,7 @@ async def generate_response_node(state: AgentState):
 
 
 
-    # ðŸ› ï¸ NEW: Pass current date down to the LLM
+    # 🛠️ NEW: Pass current date down to the LLM
     if state.get("current_date"):
         current_time_str = state["current_date"]
     else:
@@ -3075,7 +2825,7 @@ async def generate_response_node(state: AgentState):
     is_memory_ingestion = is_memory_ingestion_prompt(state["user_prompt"])
 
     if is_memory_ingestion:
-        debug_print("ðŸ§  [Ingestion] Memory review prompt detected; skipping generation LLM.")
+        debug_print("🧠 [Ingestion] Memory review prompt detected; skipping generation LLM.")
         last_response = AIMessage(
             content=json.dumps(
                 {
@@ -3142,14 +2892,14 @@ async def generate_response_node(state: AgentState):
                             },
                         )
                         debug_print(
-                            f"ðŸ”§ [Loop {iteration+1}] Executing Tool: {display_tool_name}..."
+                            f"🔧 [Loop {iteration+1}] Executing Tool: {display_tool_name}..."
                         )
 
-                        # ðŸš€ NEW: CACHE INVALIDATION INTERCEPTOR
+                        # 🚀 NEW: CACHE INVALIDATION INTERCEPTOR
                         # If the agent uses the identity update tool, wipe the cache!
                         if call["name"] == "update_agent_identity":
                             debug_print(
-                                "ðŸ”„ [Cache] Agent identity updated. Invalidating config cache."
+                                "🔄 [Cache] Agent identity updated. Invalidating config cache."
                             )
                             AGENT_CONFIG_CACHE = None
 
@@ -3209,7 +2959,7 @@ async def generate_response_node(state: AgentState):
         # --- FIX FOR PROBLEM 2: FORCE TEXT GENERATION ON TIMEOUT ---
         if iteration == MAX_ITERATIONS:
             print(
-                "âš ï¸ ReAct loop reached maximum iterations. Forcing final text generation."
+                "⚠️ ReAct loop reached maximum iterations. Forcing final text generation."
             )
             # Unbind tools by using the plain `llm` so it is FORCED to output text
             messages.append(
@@ -3234,15 +2984,15 @@ async def generate_response_node(state: AgentState):
         last_response = response
 
     # =====================================================================
-    # ðŸ› ï¸ NEW: JSON PARSING & DYNAMIC REQUIRED_DATA FALLBACK
+    # 🛠️ NEW: JSON PARSING & DYNAMIC REQUIRED_DATA FALLBACK
     # =====================================================================
     raw_text = str(last_response.content) 
     json_str = extract_json_block(raw_text)
 
 
-     # ðŸž ADD THIS DEBUG BLOCK ðŸž
+     # 🐞 ADD THIS DEBUG BLOCK 🐞
     debug_print("\n" + "="*50)
-    debug_print("ðŸž [DEBUG] RAW PASS 1 OUTPUT (WITH THINKING):")
+    debug_print("🐞 [DEBUG] RAW PASS 1 OUTPUT (WITH THINKING):")
     debug_print(last_response.content)
     debug_print("="*50 + "\n")
     
@@ -3259,7 +3009,7 @@ async def generate_response_node(state: AgentState):
         else:
             final_output = extract_pure_text(last_response)
     except Exception as e:
-        print(f"âš ï¸ [JSON Parse Error] Falling back to raw text. {e}")
+        print(f"⚠️ [JSON Parse Error] Falling back to raw text. {e}")
         final_output = extract_pure_text(last_response)
 
     target_queries = extract_target_queries_from_thinking(raw_text)
@@ -3274,7 +3024,7 @@ async def generate_response_node(state: AgentState):
     debug_print(dynamic_queries)
 
     if "REQUIRED_DATA" in flags and dynamic_queries:
-        debug_print(f"ðŸ”„ [Self-Correction] Agent requested specific data. Queries: {dynamic_queries}")
+        debug_print(f"🔄 [Self-Correction] Agent requested specific data. Queries: {dynamic_queries}")
         
         # Run targeted search using the LLM's exact keyword pairs
         fb_sem_tasks = [semantic_db.search(sq, top_k=20, threshold=0.28) for sq in dynamic_queries]
@@ -3292,7 +3042,7 @@ async def generate_response_node(state: AgentState):
                     if match: unique[match.group(1)] = line
             return "\n".join(unique.values())
         
-        # ðŸ› ï¸ FIXED: Pass both the new results AND the old context into the deduplicator!
+        # 🛠️ FIXED: Pass both the new results AND the old context into the deduplicator!
         combined_sem = fallback_dedupe(fb_sem_results + [sem_ctx_to_save])
         combined_epi = fallback_dedupe(fb_epi_results + [epi_ctx_to_save])
 
@@ -3461,7 +3211,7 @@ User question at this time ({question_time_str}):
 """
         new_messages = [SystemMessage(content=system_instruction)] + list(state["chat_history"]) + [HumanMessage(content=new_user_prompt)]
         
-        debug_print("ðŸ§  [Self-Correction] New context loaded. Re-generating JSON response...")
+        debug_print("🧠 [Self-Correction] New context loaded. Re-generating JSON response...")
         fallback_response = await gen_llm.ainvoke(new_messages)
         
         # Update metrics
@@ -3469,9 +3219,9 @@ User question at this time ({question_time_str}):
         in_tokens += m_fb["input"]
         out_tokens += m_fb["output"]
 
-        # ðŸž ADD THIS DEBUG BLOCK ðŸž
+        # 🐞 ADD THIS DEBUG BLOCK 🐞
         debug_print("\n" + "="*50)
-        debug_print("ðŸž [DEBUG] RAW PASS 2 (FALLBACK) OUTPUT:")
+        debug_print("🐞 [DEBUG] RAW PASS 2 (FALLBACK) OUTPUT:")
         debug_print(fallback_response.content)
         debug_print("="*50 + "\n")
         
@@ -3499,13 +3249,13 @@ User question at this time ({question_time_str}):
 
     end_time = time.time()
     print(
-        f"\nâ±ï¸ [Metrics] Generation Time: {end_time - start_time:.2f}s | Tokens: In({in_tokens}) Out({out_tokens})"
+        f"\n⏱️ [Metrics] Generation Time: {end_time - start_time:.2f}s | Tokens: In({in_tokens}) Out({out_tokens})"
     )
 
     current_metrics = state.get("metrics", {})
     current_metrics.update({"generation_in": in_tokens, "generation_out": out_tokens})
 
-    # ðŸš€ NEW: FIRE BACKGROUND LEARNING TO REDUCE LATENCY
+    # 🚀 NEW: FIRE BACKGROUND LEARNING TO REDUCE LATENCY
     if not state.get("skip_learning", False):
 
         is_ingestion_learning = is_memory_ingestion_prompt(state["user_prompt"])
@@ -3515,48 +3265,30 @@ User question at this time ({question_time_str}):
         
         # Define a safe wrapper that respects the 4-task limit
         async def bounded_learning():
-            nonlocal sem_ctx_to_save, epi_ctx_to_save
             if is_ingestion_learning:
                 async with INGESTION_LEARNING_LOCK:
                     await background_memory_update(
                         state["user_prompt"],
                         final_output,
-                        sem_ctx_to_save,  # ðŸ› ï¸ Pass updated Semantic context here
-                        epi_ctx_to_save,  # ðŸ› ï¸ Pass updated Episodic context here
+                        sem_ctx_to_save,  # 🛠️ Pass updated Semantic context here
+                        epi_ctx_to_save,  # 🛠️ Pass updated Episodic context here
                         state.get("procedural_context", ""),
                         state.get("current_date")
                     )
                 return
 
             async with LEARNING_SEMAPHORE:
-                learning_sem_ctx = sem_ctx_to_save
-                learning_epi_ctx = epi_ctx_to_save
-                learning_proc_ctx = state.get("procedural_context", "")
-                if state.get("channel_type") != "benchmark":
-                    (
-                        learning_sem_ctx,
-                        learning_epi_ctx,
-                        learning_proc_ctx,
-                    ) = await get_background_learning_contexts(
-                        state,
-                        sem_ctx_to_save,
-                        epi_ctx_to_save,
-                        state.get("procedural_context", ""),
-                    )
-                    sem_ctx_to_save = learning_sem_ctx
-                    epi_ctx_to_save = learning_epi_ctx
-                    state["procedural_context"] = learning_proc_ctx
                 await background_memory_update(
                     state["user_prompt"],
                     final_output,
-                    sem_ctx_to_save,  # ðŸ› ï¸ Pass updated Semantic context here
-                    epi_ctx_to_save,  # ðŸ› ï¸ Pass updated Episodic context here
+                    sem_ctx_to_save,  # 🛠️ Pass updated Semantic context here
+                    epi_ctx_to_save,  # 🛠️ Pass updated Episodic context here
                     state.get("procedural_context", ""),
                     state.get("current_date")
                 )
 
         if run_ingestion_inline:
-            debug_print("ðŸ§  [Benchmark Ingestion] Running learning inline before returning response.")
+            debug_print("🧠 [Benchmark Ingestion] Running learning inline before returning response.")
             await bounded_learning()
         else:
             # Fire-and-forget, but track it in the global set
@@ -3564,7 +3296,7 @@ User question at this time ({question_time_str}):
             PENDING_LEARNING_TASKS.add(task)
             task.add_done_callback(PENDING_LEARNING_TASKS.discard)
 
-    # ðŸ› ï¸ RETURN THE UPDATED CONTEXTS SO LANGGRAPH STATE UPDATES EVERYWHERE
+    # 🛠️ RETURN THE UPDATED CONTEXTS SO LANGGRAPH STATE UPDATES EVERYWHERE
     return {
             "final_response": final_output, 
             "metrics": current_metrics,
@@ -3576,7 +3308,7 @@ User question at this time ({question_time_str}):
 # ==========================================
 # 7. LEARNING NODE (Robust Extraction)
 # ==========================================
-@persistent_network_retry(initial_delay=3.0, max_delay=60.0, timeout=None) # ðŸ› ï¸ NEVER DROP
+@persistent_network_retry(initial_delay=3.0, max_delay=60.0, timeout=None) # 🛠️ NEVER DROP
 async def learn_vector_memory(
     db: VectorMemoryManager,
     memory_type: str,
@@ -3599,7 +3331,7 @@ async def learn_vector_memory(
         )
         instruction_extension = (
             "ATOMICITY & ENTITY-PRESERVATION RULE (CRITICAL): Separate unrelated facts, BUT NEVER sever relational links. "
-            "NEVER drop or omit any proper nouns, names of people, or specific places mentioned by the user. If the user mentions a couple or multiple people (e.g., 'Jen and Tom', 'Rachel and Mike'), you MUST include ALL NAMES in the extracted memory. " # ðŸ› ï¸ ADDED THIS SENTENCE
+            "NEVER drop or omit any proper nouns, names of people, or specific places mentioned by the user. If the user mentions a couple or multiple people (e.g., 'Jen and Tom', 'Rachel and Mike'), you MUST include ALL NAMES in the extracted memory. " # 🛠️ ADDED THIS SENTENCE
             "EVIDENCE-BOUND SEMANTIC SCOPE (CRITICAL): Extract durable user attributes, stable preferences, relationships, owned resources, current active statuses, tracked inventories, and unresolved obligations when directly supported by the user's message or conversation-history payload. "
             "Do not promote one-time completed historical events into standalone Semantic facts unless they establish a current durable state, current ownership, current inventory, active obligation, or ongoing endeavor. "
             "Do not infer locations, affiliations, ownership, completion, replacement, dates, counts, or event statuses from assistant suggestions or from merely related wording. "
@@ -3640,7 +3372,7 @@ async def learn_vector_memory(
         )
         exclusion_rule = "CRITICAL: DO NOT extract temporary states, greetings, or small talk. (Note: You ARE allowed and encouraged to include specific names, brands, or places if they are directly involved in the event)."
 
-    # ðŸ› ï¸ FIXED: Use the provided date
+    # 🛠️ FIXED: Use the provided date
     if current_date:
         current_time = current_date
         # Extract just the year from the string if possible, else fallback to system year
@@ -3841,7 +3573,7 @@ async def learn_vector_memory(
     response = await learn_llm.ainvoke([HumanMessage(content=learning_prompt)])
 
 
-    # ðŸ› ï¸ FIXED: Use robust extractor
+    # 🛠️ FIXED: Use robust extractor
     content = extract_pure_text(response)
 
     # print("learning content:")
@@ -3887,7 +3619,7 @@ async def learn_vector_memory(
         except json.JSONDecodeError:
             # 2. FALLBACK PARSER: If the LLM just dumped raw text instead of JSON
             print(
-                f"âš ï¸ [Warning] {memory_type} Editor returned raw text, falling back to ADD action."
+                f"⚠️ [Warning] {memory_type} Editor returned raw text, falling back to ADD action."
             )
 
             # Strip accidental prefixes
@@ -3903,7 +3635,7 @@ async def learn_vector_memory(
             fallback_actions = [
                 {
                     "action": "ADD",
-                    "content": line.strip(),  # ðŸ› ï¸ REMOVED THE TIMESTAMP INJECTION LOGIC HERE
+                    "content": line.strip(),  # 🛠️ REMOVED THE TIMESTAMP INJECTION LOGIC HERE
                 }
                 for line in lines
                 if line.strip()
@@ -3915,8 +3647,8 @@ async def learn_vector_memory(
                 action_results.extend(results)
 
         except Exception as e:
-            print(f"âŒ [Error] Memory Execution failed: {e}")
-            raise e  # ðŸ› ï¸ ADD THIS: Signal the decorator to retry the whole process
+            print(f"❌ [Error] Memory Execution failed: {e}")
+            raise e  # 🛠️ ADD THIS: Signal the decorator to retry the whole process
 
     if return_action_results and return_actions:
         return actions_executed, m, action_results, parsed_actions
@@ -4079,7 +3811,7 @@ async def learn_broad_episodic_memory(
         actions_executed += await episodic_db.execute_actions(actions)
 
     except json.JSONDecodeError:
-        print("âš ï¸ [Warning] Broad Episodic Editor returned raw text; storing as broad capsule.")
+        print("⚠️ [Warning] Broad Episodic Editor returned raw text; storing as broad capsule.")
         clean_content = re.sub(
             r"^(Broad Episodic|Episodic):\s*",
             "",
@@ -4091,7 +3823,7 @@ async def learn_broad_episodic_memory(
                 [{"action": "ADD", "content": clean_content}]
             )
     except Exception as e:
-        print(f"âŒ [Error] Broad Episodic Learning failed: {e}")
+        print(f"❌ [Error] Broad Episodic Learning failed: {e}")
         raise e
 
     return actions_executed, m
@@ -4149,7 +3881,7 @@ async def execute_procedural_action(act: dict) -> bool:
 
 
 
-@persistent_network_retry(initial_delay=3.0, max_delay=60.0, timeout=None) # ðŸ› ï¸ NEVER DROP
+@persistent_network_retry(initial_delay=3.0, max_delay=60.0, timeout=None) # 🛠️ NEVER DROP
 async def learn_procedural_memory(
     user_prompt: str, ai_response: str, current_context: str
 ) -> tuple[int, dict]:
@@ -4228,7 +3960,7 @@ async def learn_procedural_memory(
     """
 
     response = await learn_llm.ainvoke([HumanMessage(content=learning_prompt)])
-     # ðŸ› ï¸ FIXED: Use robust extractor
+     # 🛠️ FIXED: Use robust extractor
     content = extract_pure_text(response)
     m = get_token_metrics(response)
 
@@ -4248,13 +3980,13 @@ async def learn_procedural_memory(
 
                 changed = await execute_procedural_action(act)
                 if changed:
-                    debug_print(f"âœ… [Rules] {act_type} completed locally.")
+                    debug_print(f"✅ [Rules] {act_type} completed locally.")
                     actions_executed += 1
 
         except json.JSONDecodeError:
             # 2. FALLBACK PARSER: If the LLM dumped raw text instead of JSON
             print(
-                "âš ï¸ [Warning] Procedural Editor returned raw text, falling back to basic ADD action."
+                "⚠️ [Warning] Procedural Editor returned raw text, falling back to basic ADD action."
             )
 
             timestamp = datetime.now().strftime("[%Y-%m-%d %H:%M:%S]")
@@ -4274,8 +4006,8 @@ async def learn_procedural_memory(
                         actions_executed += 1
 
         except Exception as e:
-            print(f"âŒ [Error] Rule Execution failed: {e}")
-            raise e  # ðŸ› ï¸ ADD THIS: Signal the decorator to retry the whole process
+            print(f"❌ [Error] Rule Execution failed: {e}")
+            raise e  # 🛠️ ADD THIS: Signal the decorator to retry the whole process
 
     return actions_executed, m
 
@@ -4314,15 +4046,15 @@ async def learn_ingestion_memory_pairs(
     procedural_tokens = {"input": 0, "output": 0, "total": 0}
 
     debug_print("\n" + "=" * 80)
-    debug_print(f"ðŸ§  [Ingestion Learning] Split chunk into {len(pair_payloads)} pair(s).")
-    debug_print("ðŸ§  [Ingestion Learning] Vector memories will be staged in RAM and committed after all pairs.")
+    debug_print(f"🧠 [Ingestion Learning] Split chunk into {len(pair_payloads)} pair(s).")
+    debug_print("🧠 [Ingestion Learning] Vector memories will be staged in RAM and committed after all pairs.")
     debug_print("=" * 80)
 
     for pair_index, pair_payload in enumerate(pair_payloads, start=1):
         pair_prompt = wrap_memory_ingestion_payload(pair_payload)
 
         debug_print("\n" + "-" * 80)
-        debug_print(f"ðŸ§  [Ingestion Learning] Feeding pair {pair_index}/{len(pair_payloads)}")
+        debug_print(f"🧠 [Ingestion Learning] Feeding pair {pair_index}/{len(pair_payloads)}")
         debug_print("[Pair Payload]")
         debug_print(pair_payload)
         debug_memory_block("Working Semantic BEFORE pair", working_semantic_ctx)
@@ -4405,14 +4137,14 @@ async def learn_ingestion_memory_pairs(
         debug_memory_block("Working Semantic AFTER pair", working_semantic_ctx)
         debug_memory_block("Working Episodic AFTER pair", working_episodic_ctx)
         debug_memory_block("Working Procedural AFTER pair", working_procedural_ctx)
-        debug_print(f"ðŸ§  [Ingestion Learning] Pair {pair_index}/{len(pair_payloads)} complete; updated working memory will be passed to the next pair.")
+        debug_print(f"🧠 [Ingestion Learning] Pair {pair_index}/{len(pair_payloads)} complete; updated working memory will be passed to the next pair.")
         debug_print("-" * 80)
 
     semantic_commit_actions = build_staged_vector_commit_actions(semantic_stage)
     episodic_commit_actions = build_staged_vector_commit_actions(episodic_stage)
 
     debug_print("\n" + "=" * 80)
-    debug_print("ðŸ§  [Ingestion Learning] All pairs complete. Final working memories before DB commit:")
+    debug_print("🧠 [Ingestion Learning] All pairs complete. Final working memories before DB commit:")
     debug_memory_block("Final Working Semantic", working_semantic_ctx)
     debug_memory_block("Final Working Episodic", working_episodic_ctx)
     debug_memory_block("Final Working Procedural", working_procedural_ctx)
@@ -4430,7 +4162,7 @@ async def learn_ingestion_memory_pairs(
     episodic_count = len(episodic_commit)
 
     debug_print("\n" + "=" * 80)
-    debug_print(f"ðŸ§  [Ingestion Learning] DB commit complete: Semantic={semantic_count}, Episodic={episodic_count}, Procedural={procedural_count}")
+    debug_print(f"🧠 [Ingestion Learning] DB commit complete: Semantic={semantic_count}, Episodic={episodic_count}, Procedural={procedural_count}")
     debug_print("=" * 80)
 
     return [
@@ -4494,18 +4226,18 @@ async def update_memories_node(state: AgentState):
 
     debug_print("\n--- Memory Learning Complete ---")
     if sem_content:
-        debug_print(f"ðŸ’¡ Learned Semantic: {sem_content}")
+        debug_print(f"💡 Learned Semantic: {sem_content}")
     if epi_content:
-        debug_print(f"ðŸ’¡ Learned Episodic: {epi_content}")
+        debug_print(f"💡 Learned Episodic: {epi_content}")
     if broad_epi_content:
-        debug_print(f"ðŸ’¡ Learned Broad Episodic: {broad_epi_content}")
+        debug_print(f"💡 Learned Broad Episodic: {broad_epi_content}")
     if pro_content:
-        debug_print(f"ðŸ’¡ Learned Procedural: {pro_content}")
+        debug_print(f"💡 Learned Procedural: {pro_content}")
     if not any([sem_content, epi_content, broad_epi_content, pro_content]):
         debug_print("No new memories learned this turn.")
 
     debug_print(
-        f"â±ï¸ [Metrics] Learning Time: {end_time - start_time:.2f}s | Total Tokens: In({total_in}) Out({total_out})"
+        f"⏱️ [Metrics] Learning Time: {end_time - start_time:.2f}s | Total Tokens: In({total_in}) Out({total_out})"
     )
     debug_print("--------------------------------\n")
     return {"metrics": current_metrics}
@@ -4520,7 +4252,7 @@ async def background_memory_update(
     semantic_ctx: str,
     episodic_ctx: str,
     procedural_ctx: str,
-    current_date: str = None, # ðŸ› ï¸ ADDED
+    current_date: str = None, # 🛠️ ADDED
 ):
     """Runs memory extraction silently in the background so the user doesn't wait."""
     start_time = time.time()
@@ -4563,18 +4295,18 @@ async def background_memory_update(
 
     debug_print("\n--- Background Memory Learning Complete ---")
     if sem_content:
-        debug_print(f"ðŸ’¡ Learned Semantic: {sem_content}")
+        debug_print(f"💡 Learned Semantic: {sem_content}")
     if epi_content:
-        debug_print(f"ðŸ’¡ Learned Episodic: {epi_content}")
+        debug_print(f"💡 Learned Episodic: {epi_content}")
     if broad_epi_content:
-        debug_print(f"ðŸ’¡ Learned Broad Episodic: {broad_epi_content}")
+        debug_print(f"💡 Learned Broad Episodic: {broad_epi_content}")
     if pro_content:
-        debug_print(f"ðŸ’¡ Learned Procedural: {pro_content}")
+        debug_print(f"💡 Learned Procedural: {pro_content}")
     if not any([sem_content, epi_content, broad_epi_content, pro_content]):
         debug_print("No new memories learned this turn.")
 
     debug_print(
-        f"â±ï¸ [Metrics] Background Learning Time: {end_time - start_time:.2f}s | Total Tokens: In({total_in}) Out({total_out})"
+        f"⏱️ [Metrics] Background Learning Time: {end_time - start_time:.2f}s | Total Tokens: In({total_in}) Out({total_out})"
     )
     debug_print("--------------------------------\n")
 
@@ -4586,78 +4318,29 @@ def route_after_generation(state: AgentState):
     return END if state.get("skip_learning", False) else "update_memories"
 
 
-def route_from_start(state: AgentState):
-    if state.get("channel_type") == "benchmark":
-        return "benchmark"
-    return "normal"
-
-
-def route_after_triage(state: AgentState):
-    if state.get("triage_retrieval", False):
-        return "retrieve_memories"
-    if state.get("triage_tool", False):
-        return "route_tools"
-    return "direct_response"
-
-
-def route_after_retrieval_exp(state: AgentState):
-    if state.get("channel_type") == "benchmark":
-        return "route_tools"
-    if state.get("triage_tool", False):
-        return "route_tools"
-    return "generate_response"
-
-
 workflow = StateGraph(AgentState)
-workflow.add_node("triage_request", triage_request_node)
 workflow.add_node("retrieve_memories", retrieve_memories_node)
 workflow.add_node("route_tools", route_tools_node)  # NEW
 workflow.add_node("generate_response", generate_response_node)
-workflow.add_node("direct_response", direct_response_node)
 # workflow.add_node("update_memories", update_memories_node)
 
-workflow.add_conditional_edges(
-    START,
-    route_from_start,
-    {
-        "benchmark": "retrieve_memories",
-        "normal": "triage_request",
-    },
-)
-workflow.add_conditional_edges(
-    "triage_request",
-    route_after_triage,
-    {
-        "retrieve_memories": "retrieve_memories",
-        "route_tools": "route_tools",
-        "direct_response": "direct_response",
-    },
-)
-workflow.add_conditional_edges(
-    "retrieve_memories",
-    route_after_retrieval_exp,
-    {
-        "route_tools": "route_tools",
-        "generate_response": "generate_response",
-    },
-)
+workflow.add_edge(START, "retrieve_memories")
+workflow.add_edge("retrieve_memories", "route_tools")  # NEW PATH
 workflow.add_edge("route_tools", "generate_response")  # NEW PATH
 # workflow.add_conditional_edges("generate_response", route_after_generation)
 # workflow.add_edge("update_memories", END)
-workflow.add_edge("generate_response", END)  # ðŸš€ Returns to the user instantly!
-
-workflow.add_edge("direct_response", END)
+workflow.add_edge("generate_response", END)  # 🚀 Returns to the user instantly!
 
 app = workflow.compile()
 
 
 async def main_chat_loop():
     print(
-        "Argus Agent v0.5.0"
+        "🤖 Argus Agent  V4 - Self Reflective loop ,  Cognitive Memory Editor, Temporal Truth Protocol, and Background Learning"
     )
     chat_history = []
     while True:
-        u_input = await asyncio.to_thread(input, "\nYou: ")
+        u_input = input("\nYou: ")
         if u_input.lower() in ["exit", "quit"]:
             break
 
@@ -4677,12 +4360,9 @@ async def main_chat_loop():
             "current_date": None,
             "job_status_callback": None,
             "attachments_context": "",
-            "triage_agent_response": "",
-            "triage_tool": False,
-            "triage_retrieval": False,
         }
         final_state = await app.ainvoke(initial_state)
-        print(f"\nðŸ¤– Agent: {final_state['final_response']}")
+        print(f"\n🤖 Agent: {final_state['final_response']}")
 
         chat_history.extend(
             [

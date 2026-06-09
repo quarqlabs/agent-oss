@@ -1,5 +1,8 @@
 .env
 
+.venv
+.argus
+cloudflared.exe
 quarq_agent
 agent-oss
 __pycache__

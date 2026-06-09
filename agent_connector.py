@@ -56,6 +56,9 @@ async def get_argus_response(
         "current_date":current_date,
         "job_status_callback": status_callback,
         "attachments_context": attachments_context,
+        "triage_agent_response": "",
+        "triage_tool": False,
+        "triage_retrieval": False,
     }
 
     try:

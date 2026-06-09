@@ -15,7 +15,7 @@ Benchmark cost warning: a full 500-question LongMemEval-S run with the current m
 ## Contents
 
 - [Why Argus Exists](#why-argus-exists)
-- [What's New In v0.4.4](#whats-new-in-v044)
+- [What's New In v0.5.0](#whats-new-in-v050)
 - [What Makes It Different](#what-makes-it-different)
 - [Highlights](#highlights)
 - [Architecture](#architecture)
@@ -67,10 +67,14 @@ Argus combines:
 
 The result is an agent that behaves less like a stateless chatbot and more like a disciplined cognitive system.
 
-## What's New In v0.4.4
+## What's New In v0.5.0
 
 This release turns Argus into a much more complete local agent runtime:
 
+- **Triage-first normal runtime:** normal chat now starts with a fast LLM triage layer that chooses direct response, tool routing, memory retrieval, or retrieval-before-tools. Information-only updates and questions already answerable from recent chat can skip foreground retrieval entirely.
+- **Benchmark path preserved:** benchmark traffic still uses the original retrieval, tool-routing, generation, and learning prompts/flow so memory benchmark behavior remains comparable.
+- **Learning-safe optional retrieval:** when foreground retrieval is skipped, background learning still performs a learning-related retrieval pass before memory editing so `UPDATE` and `DELETE` actions have prior memory IDs/context.
+- **Clearer metrics:** triage, direct response, foreground retrieval, tool routing, generation, and learning-related retrieval are timed separately, and terminal background metrics avoid overwriting the active input prompt.
 - **Argus control console:** a Codex-style CLI with a fixed bottom input row, scrollable transcript, Markdown rendering, command palette, multiline compose, live status header, global `argus` launcher, and one-command setup scripts for macOS/Linux and Windows.
 - **API job queue:** chat requests now create jobs, emit status events while work is happening, and return final responses when the job completes. The CLI polls events instead of blocking silently.
 - **On-demand channels:** Telegram connects only when requested with `/connect telegram`, supports startup defaults, shows typing indicators, retries registration cleanly, and can receive coding-task progress after connecting mid-run.
@@ -80,6 +84,7 @@ This release turns Argus into a much more complete local agent runtime:
 - **Cloud-tool expansion:** external SaaS actions are routed through a single cloud-tool skill with configurable toolkits, user-facing `/tools`, `/which-tool`, `/cloud-tools`, `/add-tool`, and `/remove-tool` commands.
 - **Coding-agent delegation:** Argus can delegate software work to Codex, persist tasks and logs, continue or start fresh sessions, delete task history, configure workspace/provider/network mode, and stream progress into CLI and subscribed Telegram chats.
 - **Coding safety and UX:** coding tasks use shallow retrieval, portable workspace defaults, task-id suggestions, network-on defaults for package registries, safe restart when Codex sandbox settings change, and progress-file polling for long training/build tasks.
+- **Cloudflared setup fixes:** setup can install `cloudflared` with Homebrew on macOS/Linux, `winget` on Windows, or a direct PowerShell download fallback to `C:\cloudflared\cloudflared.exe`.
 
 ## What Makes It Different
 
@@ -107,7 +112,10 @@ Argus directly attacks those failure modes with retrieval decomposition, evidenc
 - Quantitative fidelity: numbers are stored and used with owner, property, item, and exactness.
 - Benchmark ingestion learning: history chunks are split into individual user/assistant pairs, learned sequentially, staged in RAM between pairs, and committed after the chunk is complete.
 - Duplicate protection: batch writes skip exact duplicate content before embedding, then use the normal vector duplicate check to avoid repeated memories.
+- Triage-first normal chat: information-only updates, casual chat, and questions answerable from current chat can skip foreground retrieval.
+- Retrieval-before-tools: when an action genuinely needs stored memory before a tool can run, triage routes retrieval first and then tool selection.
 - Background learning: normal user responses return immediately while memory extraction runs asynchronously.
+- Learning-related retrieval: optional foreground retrieval does not weaken memory editing, because background learning can retrieve prior context before issuing `ADD`, `UPDATE`, or `DELETE`.
 - Benchmark ingestion synchronization: benchmark memory-ingestion turns learn synchronously before returning, guarded by an ingestion lock.
 - Progressive tool loading: tool docs are only injected when a skill is selected.
 - Benchmark mode: disables tool routing, synchronously learns memory-ingestion chunks, and waits for any pending learning before final evaluation.
@@ -124,7 +132,14 @@ User / API
     v
 LangGraph StateGraph
     |
-    +-- retrieve_memories
+    +-- triage_request  (normal channels)
+    |     |
+    |     +-- direct_response
+    |     +-- route_tools
+    |     +-- retrieve_memories
+    |     +-- retrieve_memories -> route_tools
+    |
+    +-- retrieve_memories  (benchmark channel always starts here)
     |     |
     |     +-- HyDE query generation
     |     +-- semantic FAISS search
@@ -147,13 +162,22 @@ LangGraph StateGraph
                 +-- benchmark ingestion: inline sync
 ```
 
-The graph is intentionally compact:
+The normal interactive graph is triage-first:
+
+```python
+START -> triage_request -> direct_response -> END
+START -> triage_request -> route_tools -> generate_response -> END
+START -> triage_request -> retrieve_memories -> generate_response -> END
+START -> triage_request -> retrieve_memories -> route_tools -> generate_response -> END
+```
+
+Benchmark traffic intentionally keeps the original high-recall route:
 
 ```python
 START -> retrieve_memories -> route_tools -> generate_response -> END
 ```
 
-Learning is launched from `generate_response`. Normal chat keeps the interactive path fast by learning in the background. Benchmark memory-ingestion prompts learn inline before the response returns so the next history chunk retrieves against the latest committed memories.
+Learning is launched from `generate_response` or `direct_response`. Normal chat keeps the interactive path fast by learning in the background. If normal chat skipped foreground retrieval, background learning performs a learning-related retrieval pass before memory editing so updates and deletes still see prior memory context. Benchmark memory-ingestion prompts learn inline before the response returns so the next history chunk retrieves against the latest committed memories.
 
 ## Memory System
 
@@ -304,6 +328,17 @@ Downstream deduplication, recency sorting, contradiction handling, and memory up
 
 Argus does not simply embed the latest user prompt and hope for the best.
 
+For normal chat, retrieval is now optional on the foreground path. A fast triage LLM first decides whether the latest turn is:
+
+- `direct`: answer or acknowledge from the current message and recent chat history
+- `tool`: route to the tool system without memory retrieval
+- `retrieval`: retrieve memory before generation
+- `retrieval + tool`: retrieve memory first, then route tools with that memory context
+
+The triage layer is semantic rather than regex-based. It treats information-only updates as direct responses, because newly supplied facts do not need old memory to be acknowledged. It chooses retrieval when the user is asking for an answer that depends on stored personal memory not already present in recent chat. It chooses tools when the user asks Argus to perform an external action or delegate work. For action requests, tool-only is the default unless a concrete required action input is missing and stored memory is the likely source.
+
+Benchmark traffic bypasses triage and still runs the original retrieval-first path.
+
 The retrieval node first asks a lightweight model to produce a structured search plan:
 
 ```json
@@ -401,6 +436,8 @@ This makes the agent aggressive about recall but conservative about truth.
 
 After every normal response, Argus starts background learning.
 
+Because foreground retrieval can now be skipped, background learning has its own safety step. If the user-facing path did not retrieve memory, the learning worker runs a retrieval pass for the actual user prompt before calling the memory editor. That retrieved context is used only for learning, so memory updates and deletes still have the prior memory lines and IDs they need without forcing every user-facing response through retrieval.
+
 Benchmark memory-ingestion prompts are the exception. They are learned synchronously before the ingestion response returns, so `run_dataset_evals.py` does not feed the next history chunk until the previous chunk has been learned and committed.
 
 The learning model extracts:
@@ -438,6 +475,7 @@ Important learning behaviors:
 
 Background learning is protected by:
 
+- learning-related retrieval before memory editing when foreground retrieval was skipped
 - persistent retry loop
 - exponential backoff
 - concurrency limit of 4 learning tasks for normal background learning
@@ -787,7 +825,7 @@ These metrics represent the current LongMemEval-S progress while Argus Agent is 
 - Python 3.11 or higher
 - An [OpenAI API key](https://platform.openai.com/api-keys)
 - Optional for Telegram: a Telegram bot token from `@BotFather`
-- Optional for Telegram without a domain: `cloudflared` on your `PATH`
+- Optional for Telegram without a domain: `cloudflared`. Setup can install it with Homebrew, Windows `winget`, or a direct Windows PowerShell download fallback.
 - Optional for coding delegation: OpenAI Codex CLI on your `PATH`
 
 ## Quick Start
@@ -816,8 +854,17 @@ The setup script:
 - creates `.venv`
 - installs `requirements.txt`
 - creates `.env` from `.env.example` if missing
+- installs `cloudflared` when possible
 - installs the global `argus` launcher for your user
 - updates the user `PATH` for future terminals when possible
+
+`cloudflared` setup behavior:
+
+- macOS/Linux with Homebrew: `brew install cloudflare/cloudflare/cloudflared`
+- Windows with `winget`: `winget install --id Cloudflare.cloudflared --source winget --accept-package-agreements --accept-source-agreements`
+- Windows without `winget`: download the latest Cloudflare binary to `C:\cloudflared\cloudflared.exe`, temporarily add `C:\cloudflared` to the setup process `PATH`, and verify with `cloudflared.exe --version`
+
+The CLI also checks `C:\cloudflared\cloudflared.exe` directly on Windows, so `/connect telegram` can work even before a new terminal picks up a permanent PATH update.
 
 After setup, edit `.env` and fill at least:
 
@@ -861,7 +908,7 @@ as `can't encode character '\u274c'`, pull the latest code and rerun:
 py scripts\install_argus.py --force
 ```
 
-The control console starts `main:app` for you, connects the CLI to the API job queue, and shows structured events as requests move through retrieval, tool routing, generation, tool use, and final response.
+The control console starts `main:app` for you, connects the CLI to the API job queue, and shows structured events as requests move through triage, retrieval, tool routing, generation, tool use, and final response.
 
 For coding-agent delegation, the default Codex provider launches:
 
@@ -1010,7 +1057,7 @@ failure message instead of silently answering from the caption alone.
 2. Put the bot token in `.env`.
 3. Put your Telegram numeric user ID in `TELEGRAM_ALLOWED_USERS`.
 4. Set a random `TELEGRAM_WEBHOOK_SECRET`.
-5. Install `cloudflared` if you do not have a public domain.
+5. Install `cloudflared` if you do not have a public domain. `scripts/setup_argus.py` can install it automatically, including the direct Windows fallback to `C:\cloudflared\cloudflared.exe`.
 6. Run `python agent_cli.py`.
 7. In the console, run `/connect telegram`.
 
@@ -1104,6 +1151,7 @@ POST /api/coding-tasks/{task_id}/network
 
 The CLI uses the job routes. A request is enqueued, the single worker processes jobs one by one, and status events are emitted for:
 
+- triage
 - retrieval
 - tool routing
 - generation
@@ -1132,7 +1180,7 @@ This is what lets the console show useful loader text such as memory retrieval, 
 | `AGENT_PERSONALITY` | no | Default tone/personality when no local identity config exists. |
 | `AGENT_USE_CASES` | no | Default use-case description. Accepts a JSON array or comma-separated string. |
 | `AGENT_CUSTOM_PROMPT` | no | Default custom behavior instructions when no local identity config exists. |
-| `ARGUS_AGENT_VERSION` | no | Display-only version label for the control console. Defaults to `v0.4.4`. |
+| `ARGUS_AGENT_VERSION` | no | Display-only version label for the control console. Defaults to `v0.5.0`. |
 | `ARGUS_MODEL_LABEL` | no | Display-only model label for the control console. Falls back to generation model labels. |
 | `ARGUS_REASONING_EFFORT` | no | Optional display suffix for the console model label. |
 | `AGENT_DEBUG` | no | Set to `true`/`1` to show verbose debug logs from `agent.py`; metrics still print without debug. |
@@ -1190,7 +1238,7 @@ Argus is built around a few hard rules:
 
 ## Status
 
-Argus Agent v0.4.4 is an active OSS release candidate.
+Argus Agent v0.5.0 is an active OSS release candidate.
 
 The current version is optimized for long-memory evaluation and single-user local memory. The next natural steps are:
 

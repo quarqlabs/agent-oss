@@ -77,7 +77,7 @@ EVENT_BUFFER_SIZE = 300
 CHAT_HISTORY_WINDOW_MESSAGES = 8
 
 
-app = FastAPI(title="Argus Agent", version="0.4.4")
+app = FastAPI(title="Argus Agent", version="0.5.0")
 EVENTS = deque(maxlen=EVENT_BUFFER_SIZE)
 EVENT_LOCK = asyncio.Lock()
 EVENT_SEQ = 0

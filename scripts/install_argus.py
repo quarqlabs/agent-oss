@@ -53,6 +53,16 @@ def write_text(path: Path, content: str, dry_run: bool) -> None:
     path.write_text(content, encoding="utf-8")
 
 
+def launcher_mentions_root(path: Path, root: Path) -> bool:
+    if not path.exists():
+        return False
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return str(root) in content
+
+
 def append_profile_block(profile: Path, block: str, dry_run: bool) -> bool:
     existing = profile.read_text(encoding="utf-8") if profile.exists() else ""
     known_path_mentions = (
@@ -148,11 +158,6 @@ def install_windows(root: Path, force: bool, dry_run: bool) -> int:
         print_step(f"missing CLI entrypoint: {agent_cli}")
         return 1
 
-    if (cmd_path.exists() or ps1_path.exists()) and not force:
-        print_step(f"{bin_dir} already contains an argus launcher")
-        print_step("rerun with --force if you want to replace it")
-        return 1
-
     root_text = str(root)
     cmd_content = (
         "@echo off\r\n"
@@ -171,6 +176,16 @@ def install_windows(root: Path, force: bool, dry_run: bool) -> int:
         '$env:PYTHONIOENCODING = "utf-8:replace"\r\n'
         '& $Python (Join-Path $ArgusRoot "agent_cli.py") @args\r\n'
     )
+
+    if (cmd_path.exists() or ps1_path.exists()) and not force:
+        cmd_matches = launcher_mentions_root(cmd_path, root)
+        ps1_matches = launcher_mentions_root(ps1_path, root)
+        if cmd_matches and ps1_matches:
+            print_step(f"{bin_dir} already contains an argus launcher for this repo")
+            return 0
+        print_step(f"{bin_dir} already contains an argus launcher")
+        print_step("rerun with --force if you want to replace it")
+        return 1
 
     write_text(cmd_path, cmd_content, dry_run)
     write_text(ps1_path, ps1_content, dry_run)

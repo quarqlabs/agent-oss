@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from coding_agents.codex_runner import (
@@ -36,7 +38,7 @@ def test_coding_config_env_defaults_and_local_overrides(monkeypatch, tmp_path):
     assert summary["default_provider"] == "codex"
     assert summary["workspace_root"] == str(tmp_path / "repo_b")
     assert summary["network_access"] is False
-    assert summary["config_path"].endswith("coding_agents/config.json")
+    assert Path(summary["config_path"]).parts[-2:] == ("coding_agents", "config.json")
 
 
 def test_relative_workspace_resolves_from_launch_cwd(monkeypatch, tmp_path):

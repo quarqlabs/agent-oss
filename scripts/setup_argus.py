@@ -4,10 +4,12 @@
 from __future__ import annotations
 
 import argparse
+import os
 import platform
 import shutil
 import subprocess
 import sys
+import urllib.request
 import venv
 from pathlib import Path
 
@@ -54,6 +56,93 @@ def install_dependencies(root: Path, python: Path, dry_run: bool) -> None:
     run([str(python), "-m", "pip", "install", "-r", str(requirements)], root, dry_run)
 
 
+def add_to_process_path(directory: Path) -> None:
+    path_parts = [part for part in os.environ.get("PATH", "").split(os.pathsep) if part]
+    directory_text = str(directory)
+    if directory_text.lower() in {part.lower() for part in path_parts}:
+        return
+    os.environ["PATH"] = os.pathsep.join([directory_text, *path_parts])
+
+
+def install_cloudflared_from_github(root: Path, dry_run: bool) -> None:
+    url = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+    install_dir = Path("C:/cloudflared")
+    target = install_dir / "cloudflared.exe"
+    if target.exists():
+        step(f"cloudflared already installed at {target}")
+        add_to_process_path(install_dir)
+        return
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    if dry_run:
+        command_name = powershell or "powershell"
+        step(
+            f"would run: {command_name} -NoProfile -ExecutionPolicy Bypass "
+            f"-Command \"New-Item -ItemType Directory -Force -Path '{install_dir}' | Out-Null; "
+            f"Invoke-WebRequest '{url}' -OutFile '{target}'; "
+            f"$env:Path += ';{install_dir}'; & '{target}' --version\""
+        )
+        step(f"would add to PATH for this setup process: {install_dir}")
+        return
+    if powershell:
+        command = (
+            f"New-Item -ItemType Directory -Force -Path '{install_dir}' | Out-Null; "
+            f"Invoke-WebRequest '{url}' -OutFile '{target}'; "
+            f"$env:Path += ';{install_dir}'; "
+            f"& '{target}' --version"
+        )
+        try:
+            run([powershell, "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command], root, dry_run=False)
+            add_to_process_path(install_dir)
+            return
+        except subprocess.CalledProcessError as exc:
+            step(f"PowerShell cloudflared install failed with exit code {exc.returncode}; trying Python download")
+    try:
+        install_dir.mkdir(parents=True, exist_ok=True)
+        download_path = target.with_suffix(".exe.download")
+        step(f"downloading cloudflared from {url}")
+        urllib.request.urlretrieve(url, download_path)
+        download_path.replace(target)
+        add_to_process_path(install_dir)
+        step(f"installed cloudflared: {target}")
+        run([str(target), "--version"], root, dry_run=False)
+    except OSError as exc:
+        step(f"direct cloudflared install failed: {exc}")
+        step("install it manually, or set CLOUDFLARED_BIN to the full cloudflared.exe path")
+
+
+def install_cloudflared(root: Path, dry_run: bool) -> None:
+    if shutil.which("cloudflared"):
+        step("cloudflared already installed")
+        return
+    if platform.system() == "Windows":
+        winget = shutil.which("winget")
+        if not winget:
+            step(
+                "cloudflared not found and winget is unavailable; downloading cloudflared directly"
+            )
+            install_cloudflared_from_github(root, dry_run)
+            return
+        run(
+            [
+                winget,
+                "install",
+                "--id",
+                "Cloudflare.cloudflared",
+                "--source",
+                "winget",
+                "--accept-package-agreements",
+                "--accept-source-agreements",
+            ],
+            root,
+            dry_run,
+        )
+        return
+    if not shutil.which("brew"):
+        step("Homebrew not found; skipping cloudflared install")
+        return
+    run(["brew", "install", "cloudflare/cloudflare/cloudflared"], root, dry_run)
+
+
 def ensure_env(root: Path, dry_run: bool) -> None:
     env_path = root / ".env"
     example_path = root / ".env.example"
@@ -85,6 +174,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Set up Argus locally.")
     parser.add_argument("--force", action="store_true", help="replace an existing argus launcher")
     parser.add_argument("--skip-deps", action="store_true", help="do not install Python dependencies")
+    parser.add_argument("--skip-cloudflared", action="store_true", help="do not install cloudflared")
     parser.add_argument("--skip-env", action="store_true", help="do not create .env from .env.example")
     parser.add_argument("--dry-run", action="store_true", help="show what would change without writing")
     args = parser.parse_args()
@@ -94,6 +184,8 @@ def main() -> int:
     python = ensure_venv(root, args.dry_run)
     if not args.skip_deps:
         install_dependencies(root, python, args.dry_run)
+    if not args.skip_cloudflared:
+        install_cloudflared(root, args.dry_run)
     if not args.skip_env:
         ensure_env(root, args.dry_run)
     install_launcher(root, python, args.force, args.dry_run)
